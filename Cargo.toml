@@ -2,7 +2,12 @@
 name = "stream_limiter"
 version = "1.0.0"
 edition = "2021"
+description = "Synchronously speed-limiting streams based on token bucket algorithm"
+homepage = "https://github.com/massalabs/stream_limiter"
+repository = "https://github.com/massalabs/stream_limiter"
+readme = "README.md"
 authors = ["Aurélien Foucault <af@massa.net>"]
+keywords = ["rate", "rate_limiting", "synchronous", "stream"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

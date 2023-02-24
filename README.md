@@ -1,6 +1,6 @@
 # stream_limiter
 
-Synchronously speed-limiting multiple byte streams.
+Synchronously speed-limiting streams.
 
 This crate provides a `Limiter` struct that can be used to limit the rate at which a stream can be read or written.
 
