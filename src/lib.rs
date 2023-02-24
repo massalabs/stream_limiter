@@ -47,8 +47,8 @@ where
             window_time,
             stream,
             // We start at the beginning of last time window
-            last_read_check: std::time::Instant::now() - window_time,
-            last_write_check: std::time::Instant::now() - window_time,
+            last_read_check: std::time::Instant::now().checked_sub(window_time).unwrap(),
+            last_write_check: std::time::Instant::now().checked_sub(window_time).unwrap(),
         }
     }
 }
