@@ -14,7 +14,10 @@
 //! limiter.read(&mut buf).unwrap();
 //! assert_eq!(now.elapsed().as_secs(), 9);
 //! ```
-use std::{io::{self, Read, Write}, time::Duration};
+use std::{
+    io::{self, Read, Write},
+    time::Duration,
+};
 
 /// A `Limiter` is a wrapper around a stream that implement `Read` and `Write` that limits the rate at which it can be read or written.
 /// The rate is given in byte/s.
@@ -36,7 +39,7 @@ where
     /// Create a new `Limiter` with the given `stream` and rate limiting:
     /// - `window_length`: The number of bytes that can be read or written in a given time window.
     /// - `window_time`: The time window in which `window_length` bytes can be read or written.
-    /// 
+    ///
     /// We initialize the limiter as if one period has already passed so that the first read/write is instant.
     pub fn new(stream: S, window_length: u128, window_time: Duration) -> Limiter<S> {
         Limiter {
@@ -61,7 +64,8 @@ where
         let buf_len = buf.len();
         while read < buf_len {
             let nb_bytes_readable = std::cmp::min(
-                ((self.last_read_check.elapsed().as_nanos() / self.window_time.as_nanos()) * self.window_length) as usize,
+                ((self.last_read_check.elapsed().as_nanos() / self.window_time.as_nanos())
+                    * self.window_length) as usize,
                 buf_len,
             );
             if nb_bytes_readable < self.window_length as usize {
@@ -92,7 +96,8 @@ where
         let buf_len = buf.len();
         while write < buf_len {
             let nb_bytes_writable = std::cmp::min(
-                ((self.last_write_check.elapsed().as_nanos() / self.window_time.as_nanos()) * self.window_length) as usize,
+                ((self.last_write_check.elapsed().as_nanos() / self.window_time.as_nanos())
+                    * self.window_length) as usize,
                 buf_len,
             );
             if nb_bytes_writable < self.window_length as usize {
