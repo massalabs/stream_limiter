@@ -7,7 +7,7 @@ mod tests {
     #[test]
     fn one_byte_each_second() {
         let file = tempfile().unwrap();
-        let mut limiter = Limiter::new(file, 1);
+        let mut limiter = Limiter::new(file, 1, Duration::from_secs(1));
         let now = std::time::Instant::now();
         let buf = [0u8; 10];
         limiter.write(&buf).unwrap();
@@ -15,9 +15,29 @@ mod tests {
     }
 
     #[test]
+    fn one_byte_each_two_hundreds_fifty_millis() {
+        let file = tempfile().unwrap();
+        let mut limiter = Limiter::new(file, 1, Duration::from_millis(250));
+        let now = std::time::Instant::now();
+        let buf = [0u8; 10];
+        limiter.write(&buf).unwrap();
+        assert_eq!(now.elapsed().as_secs(), 2);
+    }
+
+    #[test]
+    fn two_byte_each_second() {
+        let file = tempfile().unwrap();
+        let mut limiter = Limiter::new(file, 2, Duration::from_secs(1));
+        let now = std::time::Instant::now();
+        let buf = [0u8; 10];
+        limiter.write(&buf).unwrap();
+        assert_eq!(now.elapsed().as_secs(), 4);
+    }
+
+    #[test]
     fn write_instant() {
         let file = tempfile().unwrap();
-        let mut limiter = Limiter::new(file, 10);
+        let mut limiter = Limiter::new(file, 10, Duration::from_secs(1));
         let now = std::time::Instant::now();
         let buf = [0u8; 10];
         limiter.write(&buf).unwrap();
@@ -27,7 +47,7 @@ mod tests {
     #[test]
     fn test_burst() {
         let file = tempfile().unwrap();
-        let mut limiter = Limiter::new(file, 1);
+        let mut limiter = Limiter::new(file, 1, Duration::from_secs(1));
         // Write a first byte of 1 byte. Should be instant
         let now = std::time::Instant::now();
         let buf = [0u8; 1];
