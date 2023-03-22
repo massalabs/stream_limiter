@@ -27,9 +27,9 @@ where
 {
     window_length: u128,
     window_time: Duration,
-    stream: S,
     last_read_check: std::time::Instant,
     last_write_check: std::time::Instant,
+    pub stream: S,
 }
 
 impl<S> Limiter<S>
