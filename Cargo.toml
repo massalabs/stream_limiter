@@ -1,6 +1,6 @@
 [package]
 name = "stream_limiter"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "Synchronously speed-limiting streams based on token bucket algorithm"
 homepage = "https://github.com/massalabs/stream_limiter"
