@@ -16,6 +16,7 @@
 //! ```
 use std::{
     io::{self, Read, Write},
+    ops::{Deref, DerefMut},
     time::Duration,
 };
 
@@ -118,5 +119,25 @@ where
 
     fn flush(&mut self) -> io::Result<()> {
         self.stream.flush()
+    }
+}
+
+impl<S> Deref for Limiter<S>
+where
+    S: Read + Write,
+{
+    type Target = S;
+
+    fn deref(&self) -> &Self::Target {
+        &self.stream
+    }
+}
+
+impl<S> DerefMut for Limiter<S>
+where
+    S: Read + Write,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.stream
     }
 }
