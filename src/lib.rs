@@ -68,7 +68,9 @@ where
                     * self.window_length) as usize,
                 buf_len,
             );
+            println!("{}|{} - {} ({:?}) - {} {:?}", read, buf_len, nb_bytes_readable, self.last_read_check, self.window_length, self.window_time);
             if nb_bytes_readable < self.window_length as usize {
+                println!("Wait for more");
                 std::thread::sleep(self.window_time);
                 continue;
             }

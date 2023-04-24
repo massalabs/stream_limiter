@@ -1,3 +1,4 @@
+// TODO    Create parametric tests
 mod tests {
     use std::{fs::File, io::Read, time::Duration};
 
@@ -80,5 +81,37 @@ mod tests {
         let mut buf = [0u8; 5].to_vec();
         limiter.read_to_end(&mut buf).unwrap();
         assert_eq!(now.elapsed().as_secs(), 5);
+    }
+
+    #[test]
+    fn tenko_limit() {
+        let file = File::open("tests/resources/big.txt").unwrap();
+        let mut limiter = Limiter::new(file, 10 * 1024 , Duration::from_secs(1));
+        let now = std::time::Instant::now();
+        let mut buf = [0u8; 10]; //1 * 1024];
+        limiter.read(&mut buf).unwrap();
+        assert_eq!(now.elapsed().as_millis(), 1);
+    }
+
+    #[test]
+    fn very_narrow_window() {
+        let file = File::open("tests/resources/big.txt").unwrap();
+        let mut limiter = Limiter::new(file, 11, Duration::from_nanos((1000 * 1000 * 1000)/ 1024));
+        let now = std::time::Instant::now();
+        let mut buf = [0u8; 11 * 1024];
+        limiter.read(&mut buf).unwrap();
+        assert_eq!(now.elapsed().as_millis(), 1000);
+    }
+
+    #[test]
+    fn splitted_read() {
+        let file = File::open("tests/resources/big.txt").unwrap();
+        let mut limiter = Limiter::new(file, 11, Duration::from_nanos((1000 * 1000 * 1000)/ 1024));
+        let now = std::time::Instant::now();
+        let mut buf = [0u8; 8];
+        limiter.read(&mut buf).unwrap();
+        let mut buf = [0u8; (11*1024)-8];
+        limiter.read(&mut buf).unwrap();
+        assert_eq!(now.elapsed().as_millis(), 1000);
     }
 }
