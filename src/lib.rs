@@ -68,7 +68,7 @@ where
                     * self.window_length) as usize,
                 buf_len,
             );
-            if nb_bytes_readable < self.window_length as usize {
+            if nb_bytes_readable < std::cmp::min(buf_len, self.window_length as usize) {
                 std::thread::sleep(self.window_time);
                 continue;
             }
@@ -100,7 +100,7 @@ where
                     * self.window_length) as usize,
                 buf_len,
             );
-            if nb_bytes_writable < self.window_length as usize {
+            if nb_bytes_writable < std::cmp::min(buf_len, self.window_length as usize) {
                 std::thread::sleep(self.window_time);
                 continue;
             }
