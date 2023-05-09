@@ -30,6 +30,7 @@ where
     last_read_check: std::time::Instant,
     last_write_check: std::time::Instant,
     pub stream: S,
+    bucket_size: usize,
 }
 
 impl<S> Limiter<S>
@@ -41,7 +42,7 @@ where
     /// - `window_time`: The time window in which `window_length` bytes can be read or written.
     ///
     /// We initialize the limiter as if one period has already passed so that the first read/write is instant.
-    pub fn new(stream: S, window_length: u128, window_time: Duration) -> Limiter<S> {
+    pub fn new(stream: S, window_length: u128, window_time: Duration, bucket_size: usize) -> Limiter<S> {
         Limiter {
             window_length,
             window_time,
@@ -49,6 +50,7 @@ where
             // We start at the beginning of last time window
             last_read_check: std::time::Instant::now().checked_sub(window_time).unwrap(),
             last_write_check: std::time::Instant::now().checked_sub(window_time).unwrap(),
+            bucket_size,
         }
     }
 }
@@ -63,11 +65,11 @@ where
         let mut read = 0;
         let buf_len = buf.len();
         while read < buf_len {
-            let nb_bytes_readable = std::cmp::min(
+            let nb_bytes_readable = std::cmp::min(std::cmp::min(
                 ((self.last_read_check.elapsed().as_nanos() / self.window_time.as_nanos())
                     * self.window_length) as usize,
                 buf_len,
-            );
+            ), self.bucket_size);
             if nb_bytes_readable < std::cmp::min(buf_len, self.window_length as usize) {
                 std::thread::sleep(self.window_time);
                 continue;
