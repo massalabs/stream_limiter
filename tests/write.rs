@@ -9,7 +9,6 @@ mod tests {
     #[test]
     fn one_byte_each_second() {
         let outbuf = std::io::Cursor::new(vec![]);
-        // let file = tempfile().unwrap();
         let mut limiter = Limiter::new(outbuf, 1, Duration::from_secs(1), 10);
         let now = std::time::Instant::now();
         let buf = [42u8; 10];
