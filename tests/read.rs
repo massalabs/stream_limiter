@@ -84,7 +84,6 @@ mod tests {
         let now = std::time::Instant::now();
         let mut buf = Vec::with_capacity(5);
         limiter.read_to_end(&mut buf).unwrap();
-        println!("{:?}", buf);
         assert_eq!(now.elapsed().as_secs(), 5);
         assert_checksum(&buf, &FILE_LITTLE);
     }
