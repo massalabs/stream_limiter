@@ -1,7 +1,10 @@
+mod utils;
+
 // TODO    Create parametric tests
 mod tests {
     use std::{fs::File, io::Read, time::Duration};
 
+    use super::utils::{assert_checksum, FILE_BIG, FILE_LITTLE, FILE_TEST};
     use stream_limiter::Limiter;
 
     #[test]
@@ -52,6 +55,7 @@ mod tests {
         let mut buf = [0u8; 1000];
         limiter.read(&mut buf).unwrap();
         assert_eq!(now.elapsed().as_secs(), 0);
+        assert_checksum(&buf, &FILE_TEST);
     }
 
     #[test]
@@ -78,9 +82,11 @@ mod tests {
         let file = File::open("tests/resources/little.txt").unwrap();
         let mut limiter = Limiter::new(file, 1, Duration::from_secs(1), 5);
         let now = std::time::Instant::now();
-        let mut buf = [0u8; 5].to_vec();
+        let mut buf = Vec::with_capacity(5);
         limiter.read_to_end(&mut buf).unwrap();
+        println!("{:?}", buf);
         assert_eq!(now.elapsed().as_secs(), 5);
+        assert_checksum(&buf, &FILE_LITTLE);
     }
 
     #[test]
@@ -91,6 +97,7 @@ mod tests {
         let mut buf = [0u8; 11 * 1024];
         limiter.read(&mut buf).unwrap();
         assert_eq!(now.elapsed().as_secs(), 1);
+        assert_checksum(&buf, &FILE_BIG);
     }
 
     #[test]
@@ -103,11 +110,15 @@ mod tests {
             12 * 1024,
         );
         let now = std::time::Instant::now();
+        let mut res_buffer = Vec::new();
         let mut buf = [0u8; 8];
         limiter.read(&mut buf).unwrap();
+        res_buffer.extend_from_slice(&buf);
         let mut buf = [0u8; (11 * 1024) - 8];
         limiter.read(&mut buf).unwrap();
+        res_buffer.extend_from_slice(&buf);
         assert_eq!(now.elapsed().as_secs(), 1);
+        assert_checksum(&res_buffer, &FILE_BIG);
     }
 
     #[test]
