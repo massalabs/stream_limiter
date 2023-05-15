@@ -30,7 +30,7 @@ where
     last_read_check: std::time::Instant,
     last_write_check: std::time::Instant,
     pub stream: S,
-    bucket_size: usize,
+    pub bucket_size: usize,
 }
 
 impl<S> Limiter<S>
@@ -58,6 +58,23 @@ where
             bucket_size,
         }
     }
+
+    fn stream_cap_limit(&self) -> usize {
+        std::cmp::min(self.window_length as usize, self.bucket_size)
+    }
+
+    fn get_tokens(&self, last_check: std::time::Instant) -> usize {
+        ((last_check.elapsed().as_nanos() / self.window_time.as_nanos()) * self.window_length)
+            as usize
+    }
+
+    fn read_tokens_available(&self) -> usize {
+        std::cmp::min(self.get_tokens(self.last_read_check), self.bucket_size)
+    }
+
+    fn write_tokens_available(&self) -> usize {
+        std::cmp::min(self.get_tokens(self.last_write_check), self.bucket_size)
+    }
 }
 
 impl<S> Read for Limiter<S>
@@ -69,21 +86,16 @@ where
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut read = 0;
         let buf_len = buf.len();
+        let readlimit = self.stream_cap_limit();
         while read < buf_len {
-            let nb_bytes_readable = std::cmp::min(
-                std::cmp::min(
-                    ((self.last_read_check.elapsed().as_nanos() / self.window_time.as_nanos())
-                        * self.window_length) as usize,
-                    buf_len,
-                ),
-                self.bucket_size,
-            );
-            if nb_bytes_readable < std::cmp::min(buf_len, self.window_length as usize) {
+            let nb_bytes_readable = self.read_tokens_available().min(buf_len);
+            if nb_bytes_readable < readlimit.min(buf_len) {
                 std::thread::sleep(self.window_time);
                 continue;
             }
             // Before reading so that we don't count the time it takes to read
             self.last_read_check = std::time::Instant::now();
+            // let buf_offset = if read > 0 { read - 1 } else { 0 };
             let read_now = self.stream.read(&mut buf[..nb_bytes_readable])?;
             if read_now < nb_bytes_readable {
                 break;
@@ -104,13 +116,10 @@ where
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut write = 0;
         let buf_len = buf.len();
+        let writelimit = self.stream_cap_limit();
         while write < buf_len {
-            let nb_bytes_writable = std::cmp::min(
-                ((self.last_write_check.elapsed().as_nanos() / self.window_time.as_nanos())
-                    * self.window_length) as usize,
-                buf_len,
-            );
-            if nb_bytes_writable < std::cmp::min(buf_len, self.window_length as usize) {
+            let nb_bytes_writable = self.write_tokens_available().min(buf_len);
+            if nb_bytes_writable < writelimit.min(buf_len) {
                 std::thread::sleep(self.window_time);
                 continue;
             }

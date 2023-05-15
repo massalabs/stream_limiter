@@ -47,7 +47,7 @@ mod tests {
     #[test]
     fn test_burst() {
         let file = tempfile().unwrap();
-        let mut limiter = Limiter::new(file, 1, Duration::from_secs(1), 1);
+        let mut limiter = Limiter::new(file, 1, Duration::from_secs(1), 9);
         // Write a first byte of 1 byte. Should be instant
         let now = std::time::Instant::now();
         let buf = [0u8; 1];
