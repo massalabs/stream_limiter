@@ -85,22 +85,23 @@ where
     /// If you didn't read for 10 secondes in this stream and you try to read 10 bytes, it will read instantly.
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut read = 0;
-        let buf_len = buf.len();
+        let mut buf_left = buf.len();
         let readlimit = self.stream_cap_limit();
-        while read < buf_len {
-            let nb_bytes_readable = self.read_tokens_available().min(buf_len);
-            if nb_bytes_readable < readlimit.min(buf_len) {
+        while buf_left > 0 {
+            let nb_bytes_readable = self.read_tokens_available().min(buf_left);
+            if nb_bytes_readable < readlimit.min(buf_left) {
                 std::thread::sleep(self.window_time);
                 continue;
             }
             // Before reading so that we don't count the time it takes to read
             self.last_read_check = std::time::Instant::now();
-            // let buf_offset = if read > 0 { read - 1 } else { 0 };
-            let read_now = self.stream.read(&mut buf[..nb_bytes_readable])?;
+            let buf_read_end = read + nb_bytes_readable.min(buf_left);
+            let read_now = self.stream.read(&mut buf[read..buf_read_end])?;
             if read_now < nb_bytes_readable {
                 break;
             }
             read += read_now;
+            buf_left -= read_now;
         }
         self.last_read_check = std::time::Instant::now();
         Ok(read)
@@ -115,21 +116,23 @@ where
     /// If you didn't write for 10 secondes in this stream and you try to write 10 bytes, it will write instantly.
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut write = 0;
-        let buf_len = buf.len();
+        let mut buf_left = buf.len();
         let writelimit = self.stream_cap_limit();
-        while write < buf_len {
-            let nb_bytes_writable = self.write_tokens_available().min(buf_len);
-            if nb_bytes_writable < writelimit.min(buf_len) {
+        while buf_left > 0 {
+            let nb_bytes_writable = self.write_tokens_available().min(buf_left);
+            if nb_bytes_writable < writelimit.min(buf_left) {
                 std::thread::sleep(self.window_time);
                 continue;
             }
             // Before reading so that we don't count the time it takes to read
             self.last_write_check = std::time::Instant::now();
-            let write_now = self.stream.write(&buf[..nb_bytes_writable])?;
+            let buf_write_end = write + nb_bytes_writable.min(buf_left);
+            let write_now = self.stream.write(&buf[write..buf_write_end])?;
             if write_now < nb_bytes_writable {
                 break;
             }
             write += write_now;
+            buf_left -= write_now;
         }
         self.last_write_check = std::time::Instant::now();
         Ok(write)
