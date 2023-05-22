@@ -98,7 +98,11 @@ mod tests {
     #[test]
     fn tenko_limit() {
         let file = File::open("tests/resources/big.txt").unwrap();
-        let mut limiter = Limiter::new(file, Some((10 * 1024, Duration::from_secs(1), 12 * 1024)), None);
+        let mut limiter = Limiter::new(
+            file,
+            Some((10 * 1024, Duration::from_secs(1), 12 * 1024)),
+            None,
+        );
         assert!(limiter.limits().0);
         let now = std::time::Instant::now();
         let mut buf = [0u8; 11 * 1024];
@@ -112,11 +116,12 @@ mod tests {
         let file = File::open("tests/resources/big.txt").unwrap();
         let mut limiter = Limiter::new(
             file,
-            Some((11,
+            Some((
+                11,
                 Duration::from_nanos((1000 * 1000 * 1000) / 1024),
-                12 * 1024
+                12 * 1024,
             )),
-            None
+            None,
         );
         assert!(limiter.limits().0);
         let now = std::time::Instant::now();

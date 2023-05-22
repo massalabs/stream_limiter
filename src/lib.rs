@@ -51,10 +51,14 @@ where
             // We start at the beginning of last time window
             last_read_check: if let Some((_, window_time, _)) = read_opt {
                 Some(std::time::Instant::now().checked_sub(window_time).unwrap())
-            } else { None },
+            } else {
+                None
+            },
             last_write_check: if let Some((_, window_time, _)) = write_opt {
                 Some(std::time::Instant::now().checked_sub(window_time).unwrap())
-            } else { None },
+            } else {
+                None
+            },
             read_opt,
             write_opt,
         }
@@ -76,12 +80,20 @@ where
 
     fn tokens_available(&self) -> (Option<usize>, Option<usize>) {
         let read_tokens = if let Some((window_length, window_time, bucket_size)) = self.read_opt {
-            Some(std::cmp::min(((self.last_read_check.unwrap().elapsed().as_nanos() / window_time.as_nanos()) * window_length) as usize, bucket_size))
+            Some(std::cmp::min(
+                ((self.last_read_check.unwrap().elapsed().as_nanos() / window_time.as_nanos())
+                    * window_length) as usize,
+                bucket_size,
+            ))
         } else {
             None
         };
         let write_tokens = if let Some((window_length, window_time, bucket_size)) = self.write_opt {
-            Some(std::cmp::min(((self.last_write_check.unwrap().elapsed().as_nanos() / window_time.as_nanos()) * window_length) as usize, bucket_size))
+            Some(std::cmp::min(
+                ((self.last_write_check.unwrap().elapsed().as_nanos() / window_time.as_nanos())
+                    * window_length) as usize,
+                bucket_size,
+            ))
         } else {
             None
         };

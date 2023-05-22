@@ -78,7 +78,11 @@ mod tests {
     #[test]
     fn tenko_limit() {
         let outbuf = std::io::Cursor::new(vec![]);
-        let mut limiter = Limiter::new(outbuf, None, Some((10 * 1024, Duration::from_secs(1), 12 * 1024)));
+        let mut limiter = Limiter::new(
+            outbuf,
+            None,
+            Some((10 * 1024, Duration::from_secs(1), 12 * 1024)),
+        );
         assert!(limiter.limits().1);
         let now = std::time::Instant::now();
         let buf = [88u8; 11 * 1024];
