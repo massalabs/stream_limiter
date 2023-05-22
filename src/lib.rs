@@ -162,11 +162,13 @@ where
         while buf_left > 0 {
             let nb_bytes_readable = self.tokens_available().0.unwrap().min(buf_left);
             if nb_bytes_readable < readlimit.min(buf_left) {
-                if let Some(lrc) = self.last_read_check {
-                    std::thread::sleep((*window_time - lrc.elapsed()).max(Duration::from_nanos(0)));
+                let elapsed = if let Some(lrc) = self.last_read_check {
+                    lrc.elapsed()
                 } else {
-                    std::thread::sleep(*window_time);
-                }
+                    Duration::ZERO
+                };
+                self.last_read_check = Some(std::time::Instant::now());
+                std::thread::sleep(window_time.saturating_sub(elapsed));
                 continue;
             }
             // Before reading so that we don't count the time it takes to read
@@ -202,11 +204,13 @@ where
         while buf_left > 0 {
             let nb_bytes_writable = self.tokens_available().1.unwrap().min(buf_left);
             if nb_bytes_writable < writelimit.min(buf_left) {
-                if let Some(lwc) = self.last_write_check {
-                    std::thread::sleep((*window_time - lwc.elapsed()).max(Duration::from_nanos(0)));
+                let elapsed = if let Some(lwc) = self.last_write_check {
+                    lwc.elapsed()
                 } else {
-                    std::thread::sleep(*window_time);
-                }
+                    Duration::ZERO
+                };
+                self.last_write_check = Some(std::time::Instant::now());
+                std::thread::sleep(window_time.saturating_sub(elapsed));
                 continue;
             }
             // Before reading so that we don't count the time it takes to read
