@@ -2,13 +2,13 @@
 //! This crate is based on the token bucket algorithm. When we want to read data and we are rate limited the packet aren't drop but we sleep.
 //! Example:
 //! ```
-//! use stream_limiter::Limiter;
+//! use stream_limiter::{Limiter, LimiterOptions};
 //! use std::time::Duration;
 //! use std::io::prelude::*;
 //! use std::fs::File;
 //!
 //! let mut file = File::open("tests/resources/test.txt").unwrap();
-//! let mut limiter = Limiter::new(file, Some((1, Duration::from_secs(1), 1)), None);
+//! let mut limiter = Limiter::new(file, Some(LimiterOptions::new(1, Duration::from_secs(1), 1)), None);
 //! let mut buf = [0u8; 10];
 //! let now = std::time::Instant::now();
 //! limiter.read(&mut buf).unwrap();
@@ -19,6 +19,22 @@ use std::{
     time::Duration,
 };
 
+pub struct LimiterOptions {
+    window_length: u128,
+    window_time: Duration,
+    bucket_size: usize,
+}
+
+impl LimiterOptions {
+    pub fn new(window_length: u128, window_time: Duration, bucket_size: usize) -> LimiterOptions {
+        LimiterOptions {
+            window_length,
+            window_time,
+            bucket_size,
+        }
+    }
+}
+
 /// A `Limiter` is a wrapper around a stream that implement `Read` and `Write` that limits the rate at which it can be read or written.
 /// The rate is given in byte/s.
 pub struct Limiter<S>
@@ -26,8 +42,8 @@ where
     S: Read + Write,
 {
     pub stream: S,
-    read_opt: Option<(u128, Duration, usize)>,
-    write_opt: Option<(u128, Duration, usize)>,
+    read_opt: Option<LimiterOptions>,
+    write_opt: Option<LimiterOptions>,
     last_read_check: Option<std::time::Instant>,
     last_write_check: Option<std::time::Instant>,
 }
@@ -43,18 +59,18 @@ where
     /// We initialize the limiter as if one period has already passed so that the first read/write is instant.
     pub fn new(
         stream: S,
-        read_opt: Option<(u128, Duration, usize)>,
-        write_opt: Option<(u128, Duration, usize)>,
+        read_opt: Option<LimiterOptions>,
+        write_opt: Option<LimiterOptions>,
     ) -> Limiter<S> {
         Limiter {
             stream,
             // We start at the beginning of last time window
-            last_read_check: if let Some((_, window_time, _)) = read_opt {
+            last_read_check: if let Some(LimiterOptions { window_time, .. }) = read_opt {
                 Some(std::time::Instant::now().checked_sub(window_time).unwrap())
             } else {
                 None
             },
-            last_write_check: if let Some((_, window_time, _)) = write_opt {
+            last_write_check: if let Some(LimiterOptions { window_time, .. }) = write_opt {
                 Some(std::time::Instant::now().checked_sub(window_time).unwrap())
             } else {
                 None
@@ -65,12 +81,22 @@ where
     }
 
     fn stream_cap_limit(&self) -> (Option<usize>, Option<usize>) {
-        let read_cap = if let Some((window_length, _, bucket_size)) = self.read_opt {
+        let read_cap = if let Some(LimiterOptions {
+            window_length,
+            bucket_size,
+            ..
+        }) = self.read_opt
+        {
             Some(std::cmp::min(window_length as usize, bucket_size))
         } else {
             None
         };
-        let write_cap = if let Some((window_length, _, bucket_size)) = self.write_opt {
+        let write_cap = if let Some(LimiterOptions {
+            window_length,
+            bucket_size,
+            ..
+        }) = self.write_opt
+        {
             Some(std::cmp::min(window_length as usize, bucket_size))
         } else {
             None
@@ -79,7 +105,12 @@ where
     }
 
     fn tokens_available(&self) -> (Option<usize>, Option<usize>) {
-        let read_tokens = if let Some((window_length, window_time, bucket_size)) = self.read_opt {
+        let read_tokens = if let Some(LimiterOptions {
+            window_length,
+            window_time,
+            bucket_size,
+        }) = self.read_opt
+        {
             Some(std::cmp::min(
                 ((self.last_read_check.unwrap().elapsed().as_nanos() / window_time.as_nanos())
                     * window_length) as usize,
@@ -88,7 +119,12 @@ where
         } else {
             None
         };
-        let write_tokens = if let Some((window_length, window_time, bucket_size)) = self.write_opt {
+        let write_tokens = if let Some(LimiterOptions {
+            window_length,
+            window_time,
+            bucket_size,
+        }) = self.write_opt
+        {
             Some(std::cmp::min(
                 ((self.last_write_check.unwrap().elapsed().as_nanos() / window_time.as_nanos())
                     * window_length) as usize,
@@ -122,11 +158,11 @@ where
         } else {
             return self.stream.read(buf);
         };
-        let (_, window_time, _) = self.read_opt.unwrap();
+        let LimiterOptions { window_time, .. } = self.read_opt.as_ref().unwrap();
         while buf_left > 0 {
             let nb_bytes_readable = self.tokens_available().0.unwrap().min(buf_left);
             if nb_bytes_readable < readlimit.min(buf_left) {
-                std::thread::sleep(window_time);
+                std::thread::sleep(*window_time);
                 continue;
             }
             // Before reading so that we don't count the time it takes to read
@@ -158,11 +194,11 @@ where
         } else {
             return self.stream.write(buf);
         };
-        let (_, window_time, _) = self.write_opt.unwrap();
+        let LimiterOptions { window_time, .. } = self.write_opt.as_ref().unwrap();
         while buf_left > 0 {
             let nb_bytes_writable = self.tokens_available().1.unwrap().min(buf_left);
             if nb_bytes_writable < writelimit.min(buf_left) {
-                std::thread::sleep(window_time);
+                std::thread::sleep(*window_time);
                 continue;
             }
             // Before reading so that we don't count the time it takes to read

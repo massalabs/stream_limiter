@@ -5,12 +5,16 @@ mod tests {
     use std::{fs::File, io::Read, time::Duration};
 
     use super::utils::{assert_checksum, FILE_BIG, FILE_LITTLE, FILE_TEST};
-    use stream_limiter::Limiter;
+    use stream_limiter::{Limiter, LimiterOptions};
 
     #[test]
     fn one_byte_each_second() {
         let file = File::open("tests/resources/test.txt").unwrap();
-        let mut limiter = Limiter::new(file, Some((1, Duration::from_secs(1), 10)), None);
+        let mut limiter = Limiter::new(
+            file,
+            Some(LimiterOptions::new(1, Duration::from_secs(1), 10)),
+            None,
+        );
         assert!(limiter.limits().0);
         let now = std::time::Instant::now();
         let mut buf = [0u8; 10];
@@ -21,7 +25,11 @@ mod tests {
     #[test]
     fn one_byte_each_two_hundreds_fifty_millis() {
         let file = File::open("tests/resources/test.txt").unwrap();
-        let mut limiter = Limiter::new(file, Some((1, Duration::from_millis(250), 10)), None);
+        let mut limiter = Limiter::new(
+            file,
+            Some(LimiterOptions::new(1, Duration::from_millis(250), 10)),
+            None,
+        );
         assert!(limiter.limits().0);
         let now = std::time::Instant::now();
         let mut buf = [0u8; 10];
@@ -32,7 +40,11 @@ mod tests {
     #[test]
     fn two_byte_each_second() {
         let file = File::open("tests/resources/test.txt").unwrap();
-        let mut limiter = Limiter::new(file, Some((2, Duration::from_secs(1), 10)), None);
+        let mut limiter = Limiter::new(
+            file,
+            Some(LimiterOptions::new(2, Duration::from_secs(1), 10)),
+            None,
+        );
         assert!(limiter.limits().0);
         let now = std::time::Instant::now();
         let mut buf = [0u8; 10];
@@ -43,7 +55,11 @@ mod tests {
     #[test]
     fn read_instant() {
         let file = File::open("tests/resources/test.txt").unwrap();
-        let mut limiter = Limiter::new(file, Some((10, Duration::from_secs(1), 10)), None);
+        let mut limiter = Limiter::new(
+            file,
+            Some(LimiterOptions::new(10, Duration::from_secs(1), 10)),
+            None,
+        );
         assert!(limiter.limits().0);
         let now = std::time::Instant::now();
         let mut buf = [0u8; 10];
@@ -54,7 +70,11 @@ mod tests {
     #[test]
     fn read_instant_on_bigger_buffer() {
         let file = File::open("tests/resources/test.txt").unwrap();
-        let mut limiter = Limiter::new(file, Some((100, Duration::from_secs(1), 1000)), None);
+        let mut limiter = Limiter::new(
+            file,
+            Some(LimiterOptions::new(100, Duration::from_secs(1), 1000)),
+            None,
+        );
         assert!(limiter.limits().0);
         let now = std::time::Instant::now();
         let mut buf = [0u8; 1000];
@@ -66,7 +86,11 @@ mod tests {
     #[test]
     fn test_burst() {
         let file = File::open("tests/resources/test.txt").unwrap();
-        let mut limiter = Limiter::new(file, Some((1, Duration::from_secs(1), 9)), None);
+        let mut limiter = Limiter::new(
+            file,
+            Some(LimiterOptions::new(1, Duration::from_secs(1), 9)),
+            None,
+        );
         assert!(limiter.limits().0);
         // Read a first byte of 1 byte. Should be instant
         let now = std::time::Instant::now();
@@ -86,7 +110,11 @@ mod tests {
     #[test]
     fn read_the_whole_file() {
         let file = File::open("tests/resources/little.txt").unwrap();
-        let mut limiter = Limiter::new(file, Some((1, Duration::from_secs(1), 5)), None);
+        let mut limiter = Limiter::new(
+            file,
+            Some(LimiterOptions::new(1, Duration::from_secs(1), 5)),
+            None,
+        );
         assert!(limiter.limits().0);
         let now = std::time::Instant::now();
         let mut buf = Vec::with_capacity(5);
@@ -100,7 +128,11 @@ mod tests {
         let file = File::open("tests/resources/big.txt").unwrap();
         let mut limiter = Limiter::new(
             file,
-            Some((10 * 1024, Duration::from_secs(1), 12 * 1024)),
+            Some(LimiterOptions::new(
+                10 * 1024,
+                Duration::from_secs(1),
+                12 * 1024,
+            )),
             None,
         );
         assert!(limiter.limits().0);
@@ -116,7 +148,7 @@ mod tests {
         let file = File::open("tests/resources/big.txt").unwrap();
         let mut limiter = Limiter::new(
             file,
-            Some((
+            Some(LimiterOptions::new(
                 11,
                 Duration::from_nanos((1000 * 1000 * 1000) / 1024),
                 12 * 1024,
@@ -139,7 +171,11 @@ mod tests {
     #[test]
     fn test_bucket_full() {
         let file = File::open("tests/resources/test.txt").unwrap();
-        let mut limiter = Limiter::new(file, Some((1024, Duration::from_secs(1), 10)), None);
+        let mut limiter = Limiter::new(
+            file,
+            Some(LimiterOptions::new(1024, Duration::from_secs(1), 10)),
+            None,
+        );
         assert!(limiter.limits().0);
         let now = std::time::Instant::now();
         let mut buf = [0u8; 15];
