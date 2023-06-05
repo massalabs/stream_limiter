@@ -28,7 +28,7 @@ mod tests {
             let mut buffer = [0u8; 10];
             let now = std::time::Instant::now();
             limiter.read(&mut buffer).unwrap();
-            println!("R] Result: {:?}", buffer);
+            println!("R] Result: {:?} (len {})", buffer, buffer.len());
             assert_eq!(buffer, [42; 10]);
             assert_eq!(now.elapsed().as_secs(), 1);
             break;
@@ -55,11 +55,11 @@ mod tests {
             let mut stream = stream.unwrap();
             println!("R] Stream {:?} connected", stream);
             println!("R] Reading with limitation");
-            let mut buffer = Vec::new();
+            let mut buffer = [0; 10];
             let now = std::time::Instant::now();
-            stream.read_to_end(&mut buffer).unwrap();
+            stream.read_exact(&mut buffer).unwrap();
 
-            println!("R] Result: {:?}", buffer);
+            println!("R] Result: {:?} (len {})", buffer, buffer.len());
             assert_eq!(buffer, [42; 10]);
             assert_eq!(now.elapsed().as_secs(), 1);
             break;
@@ -85,16 +85,16 @@ mod tests {
         for stream in listener.incoming() {
             println!("R] Stream {:?} connected", stream);
             println!("R] Reading with limitation");
-            let mut buffer = Vec::new();
+            let mut buffer = [0; 10];
             let now = std::time::Instant::now();
             let mut limiter = Limiter::new(
                 stream.unwrap(),
                 Some(LimiterOptions::new(9, Duration::from_secs(1), 10)),
                 None,
             );
-            limiter.read_to_end(&mut buffer).unwrap();
+            limiter.read_exact(&mut buffer).unwrap();
 
-            println!("R] Result: {:?}", buffer);
+            println!("R] Result: {:?} (len {})", buffer, buffer.len());
             assert_eq!(buffer, [42; 10]);
             assert_eq!(now.elapsed().as_secs(), 1);
             break;
@@ -120,18 +120,18 @@ mod tests {
         for stream in listener.incoming() {
             println!("R] Stream {:?} connected", stream);
             println!("R] Reading with limitation");
-            let mut buffer = Vec::new();
+            let mut buffer = [0; 10];
             let now = std::time::Instant::now();
             let mut limiter = Limiter::new(
                 stream.unwrap(),
                 Some(LimiterOptions::new(10, Duration::from_secs(1), 10)),
                 None,
             );
-            limiter.read_to_end(&mut buffer).unwrap();
+            limiter.read_exact(&mut buffer).unwrap();
 
-            println!("R] Result: {:?}", buffer);
+            println!("R] Result: {:?} (len {})", buffer, buffer.len());
             assert_eq!(buffer, [42; 10]);
-            assert_eq!(now.elapsed().as_secs(), 1);
+            assert_eq!(now.elapsed().as_secs(), 0);
             break;
         }
     }
