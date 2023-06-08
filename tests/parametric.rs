@@ -27,8 +27,8 @@ mod tests {
     }
 
     #[test]
-    fn test_limit_speed() {
-        fn paramtest_limit_speed<R: rand::Rng>(mut rng: R) {
+    fn test_buffer() {
+        fn paramtest_buffer<R: rand::Rng>(mut rng: R) {
             let datalen = rng.gen_range(10..1024*512);
 
             let outbuf = std::io::Cursor::new(vec![]);
@@ -85,12 +85,102 @@ mod tests {
                 assert!(elapsed.as_nanos() < INSTANT_IO_EPS);
             }
 
-            assert_eq!(get_data_hash(limiter.stream.get_ref()), data_checksum);
-            assert_eq!(&data, limiter.stream.get_ref());
+            assert_eq!(get_data_hash(&buf), data_checksum);
+            assert_eq!(&data, &buf);
         }
         start_parametric_test(3_000_000, vec![
             14398057406427516238,
             13640999559978117227,
-        ], paramtest_limit_speed);
+        ], paramtest_buffer);
+    }
+
+    #[test]
+    fn test_tcp() {
+        use std::net::{TcpStream, TcpListener};
+
+        fn paramtest_tcp<R: rand::Rng>(mut rng: R) {
+            let datalen = rng.gen_range(10..1024*512);
+            let wopts_connector = get_random_options(&mut rng, datalen);
+            let wopts_listener = get_random_options(&mut rng, datalen);
+            let ropts_connector = get_random_options(&mut rng, datalen);
+            let ropts_listener = get_random_options(&mut rng, datalen);
+            let data: Vec<u8> = (0..datalen).map(|_| rng.gen::<u8>()).collect();
+            let data_c = data.clone();
+            let datahash = get_data_hash(&data);
+            let port = 10000 + rng.gen_range(0..(u16::MAX - 10000));
+
+            let listener = TcpListener::bind(format!("127.0.0.1:{port}")).unwrap();
+
+            std::thread::spawn(move || {
+                let stream = TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
+                let mut limiter = Limiter::new(
+                    stream,
+                    ropts_connector.clone(),
+                    wopts_connector.clone(),
+                );
+
+                let now = std::time::Instant::now();
+                limiter.write_all(&data_c).unwrap();
+                let elapsed = now.elapsed();
+                if let Some(opts) = wopts_connector {
+                    let rate = opts.window_length.min(opts.bucket_size as u128);
+                    if datalen as u128 > rate {
+                        assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
+                    } else {
+                        assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
+                    }
+                }
+
+                let mut buf = vec![0; datalen];
+                let now = std::time::Instant::now();
+                limiter.read_exact(&mut buf).unwrap();
+                let elapsed = now.elapsed();
+                assert_eq!(get_data_hash(&buf), datahash);
+                if let Some(ref opts) = ropts_connector {
+                    let rate = opts.window_length.min(opts.bucket_size as u128);
+                    if datalen as u128 > rate {
+                        assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
+                    } else {
+                        assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
+                    }
+                }
+            });
+
+            for stream in listener.incoming() {
+                let mut limiter = Limiter::new(
+                    stream.unwrap(),
+                    ropts_listener.clone(),
+                    wopts_listener.clone(),
+                );
+
+                let mut buf = vec![0; datalen];
+                let now = std::time::Instant::now();
+                limiter.read_exact(&mut buf).unwrap();
+                let elapsed = now.elapsed();
+                if let Some(ref opts) = ropts_listener {
+                    let rate = opts.window_length.min(opts.bucket_size as u128);
+                    if datalen as u128 > rate {
+                        assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
+                    } else {
+                        assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
+                    }
+                }
+
+                let now = std::time::Instant::now();
+                limiter.write_all(&data).unwrap();
+                let elapsed = now.elapsed();
+                if let Some(opts) = wopts_listener {
+                    let rate = opts.window_length.min(opts.bucket_size as u128);
+                    if datalen as u128 > rate {
+                        assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
+                    } else {
+                        assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
+                    }
+                }
+                break;
+            }
+        }
+        start_parametric_test(3_000_000, vec![
+        ], paramtest_tcp);
     }
 }
