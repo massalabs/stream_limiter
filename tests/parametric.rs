@@ -34,21 +34,21 @@ mod tests {
             let outbuf = std::io::Cursor::new(vec![]);
             let wopts = get_random_options(&mut rng, datalen);
             let ropts = get_random_options(&mut rng, datalen);
-            let mut limiter = Limiter::new(
-                outbuf,
-                ropts.clone(),
-                wopts.clone(),
-            );
 
             let data: Vec<u8> = (0..datalen).map(|_| rng.gen::<u8>()).collect();
             let buf = data.clone();
             let data_checksum = get_data_hash(&buf);
             
+            let mut limiter = Limiter::new(
+                outbuf,
+                ropts.clone(),
+                wopts.clone(),
+            );
             println!("Writing {} data with opts {:?}", datalen, wopts);
             let now = std::time::Instant::now();
             let nwrite = limiter.write(&buf).unwrap();
-            assert_eq!(nwrite, datalen);
             let elapsed = now.elapsed();
+            assert_eq!(nwrite, datalen);
             if let Some(ref opts) = wopts {
                 let rate = opts.window_length.min(opts.bucket_size as u128);
                 if datalen as u128 > rate {
@@ -62,25 +62,23 @@ mod tests {
 
             assert_eq!(get_data_hash(limiter.stream.get_ref()), data_checksum);
 
-            let read_buf = limiter.stream;
+            let read_buf = limiter.stream.into_inner();
+            let mut buf = vec![0; datalen];
             let mut limiter = Limiter::new(
-                read_buf,
+                std::io::Cursor::new(read_buf),
                 ropts.clone(),
                 wopts.clone(),
             );
-            let mut buf = vec![0; datalen];
             println!("Reading {} data with opts {:?}", datalen, ropts);
             let now = std::time::Instant::now();
             let nread = limiter.read(buf.as_mut_slice()).unwrap();
-            assert_eq!(nread, datalen);
             let elapsed = now.elapsed();
+            assert_eq!(nread, datalen);
             if let Some(ref opts) = ropts {
                 let rate = opts.window_length.min(opts.bucket_size as u128);
                 if datalen as u128 > rate {
-                    println!("{:?} > {:?}", elapsed, opts.window_time);
                     assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
                 } else {
-                    println!("{:?} <= {:?}", elapsed, opts.window_time);
                     assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
                 }
             } else {
@@ -89,11 +87,10 @@ mod tests {
 
             assert_eq!(get_data_hash(limiter.stream.get_ref()), data_checksum);
             assert_eq!(&data, limiter.stream.get_ref());
-            println!("OK");
-            println!("");
         }
         start_parametric_test(3_000_000, vec![
-            14398057406427516238
+            14398057406427516238,
+            13640999559978117227,
         ], paramtest_limit_speed);
     }
 }
