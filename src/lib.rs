@@ -19,10 +19,11 @@ use std::{
     time::Duration,
 };
 
+#[derive(Clone, Debug)]
 pub struct LimiterOptions {
-    window_length: u128,
-    window_time: Duration,
-    bucket_size: usize,
+    pub window_length: u128,
+    pub window_time: Duration,
+    pub bucket_size: usize,
 }
 
 impl LimiterOptions {
@@ -32,6 +33,12 @@ impl LimiterOptions {
             window_time,
             bucket_size,
         }
+    }
+
+    pub fn get_tx_time(&self, nbytes: usize) -> Duration {
+        let rate = self.window_length.min(self.bucket_size as u128);
+        let nb_nanos = ((nbytes as u128) * self.window_time.as_nanos()) / rate;
+        std::time::Duration::from_nanos(nb_nanos as u64)
     }
 }
 

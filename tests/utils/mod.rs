@@ -1,6 +1,8 @@
 use hex_literal::hex;
 use sha2::Digest;
 
+pub mod paramtests;
+
 // The checksum and the size of the data (to trim the buffer)
 pub const FILE_BIG: ([u8; 32], usize) = (
     hex!("55e28ecbd9ea1df018ffacd137ee8d62551eb2d6fbd46508bca7809005ff267a"),

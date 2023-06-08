@@ -1,4 +1,5 @@
 mod utils;
+mod parametric;
 
 mod tests {
     use std::{io::Write, time::Duration};
