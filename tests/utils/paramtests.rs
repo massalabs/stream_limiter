@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
@@ -9,6 +11,7 @@ where
     for seed in regressions.iter() {
         println!("Test regression seed {}", seed);
         function(SmallRng::seed_from_u64(*seed));
+        std::thread::sleep(Duration::from_millis(50));
     }
     let mut seeder = SmallRng::from_entropy();
 
@@ -19,6 +22,7 @@ where
         println!("/{}| Seed {:20}", nbiter, new_seed);
         function(SmallRng::seed_from_u64(new_seed));
         println!("\tOK");
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 

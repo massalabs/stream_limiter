@@ -54,6 +54,7 @@ where
     last_read_check: Option<std::time::Instant>,
     last_write_check: Option<std::time::Instant>,
     id: &'static str,
+    additionnal_tokens: (usize, usize),
 }
 
 impl<S> Limiter<S>
@@ -87,6 +88,7 @@ where
             read_opt,
             write_opt,
             id,
+            additionnal_tokens: (0, 0),
         }
     }
 
@@ -125,7 +127,7 @@ where
                 ((self.last_read_check.unwrap().elapsed().as_nanos() / window_time.as_nanos())
                     * window_length) as usize,
                 bucket_size,
-            ))
+            ) + self.additionnal_tokens.0)
         } else {
             None
         };
@@ -139,7 +141,7 @@ where
                 ((self.last_write_check.unwrap().elapsed().as_nanos() / window_time.as_nanos())
                     * window_length) as usize,
                 bucket_size,
-            ))
+            ) + self.additionnal_tokens.1)
         } else {
             None
         };
@@ -166,19 +168,22 @@ where
         let readlimit = if let (Some(limit), _) = self.stream_cap_limit() {
             limit
         } else {
-            println!("{}| READ DIRECT", self.id);
+            println!("{}| READ DIRECT {} bytes", self.id, buf_left);
             return self.stream.read(buf);
         };
-        let LimiterOptions { window_time, .. } = self.read_opt.as_ref().unwrap();
+        let LimiterOptions { window_time, bucket_size, .. } = self.read_opt.as_ref().unwrap();
         while buf_left > 0 {
             let nb_bytes_readable = self.tokens_available().0.unwrap().min(buf_left);
+            println!("{}", bucket_size);
+            println!("{:?}", self.last_read_check.unwrap().elapsed());
+            println!("{} bytes readable < {} ?", nb_bytes_readable, readlimit.min(buf_left));
             if nb_bytes_readable < readlimit.min(buf_left) {
                 let elapsed = if let Some(lrc) = self.last_read_check {
                     lrc.elapsed()
                 } else {
                     Duration::ZERO
                 };
-                self.last_read_check = Some(std::time::Instant::now());
+                // self.last_read_check = Some(std::time::Instant::now());
                 std::thread::sleep(window_time.saturating_sub(elapsed));
                 continue;
             }
@@ -189,8 +194,12 @@ where
             let read_now = self.stream.read(&mut buf[read..buf_read_end])?;
             // FIXME    If less bytes writable than bytes readable here, it'll break before
             // if read_now < nb_bytes_readable {
+            println!("READ {} ({} + min({}, {}))", read_now, read, nb_bytes_readable, buf_left);
             if read_now == 0 {
                 break;
+            }
+            if read_now < nb_bytes_readable {
+                self.additionnal_tokens.0 = self.additionnal_tokens.0.saturating_add(nb_bytes_readable - read_now);
             }
             read += read_now;
             buf_left -= read_now;
@@ -212,7 +221,7 @@ where
         let writelimit = if let (_, Some(limit)) = self.stream_cap_limit() {
             limit
         } else {
-            println!("{}| WRITE DIRECT", self.id);
+            println!("{}| WRITE DIRECT {} bytes", self.id, buf_left);
             return self.stream.write(buf);
         };
         let LimiterOptions { window_time, .. } = self.write_opt.as_ref().unwrap();
