@@ -53,6 +53,7 @@ where
     write_opt: Option<LimiterOptions>,
     last_read_check: Option<std::time::Instant>,
     last_write_check: Option<std::time::Instant>,
+    id: &'static str,
 }
 
 impl<S> Limiter<S>
@@ -65,6 +66,7 @@ where
     ///
     /// We initialize the limiter as if one period has already passed so that the first read/write is instant.
     pub fn new(
+        id: &'static str,
         stream: S,
         read_opt: Option<LimiterOptions>,
         write_opt: Option<LimiterOptions>,
@@ -84,6 +86,7 @@ where
             },
             read_opt,
             write_opt,
+            id,
         }
     }
 
@@ -163,6 +166,7 @@ where
         let readlimit = if let (Some(limit), _) = self.stream_cap_limit() {
             limit
         } else {
+            println!("{}| READ DIRECT", self.id);
             return self.stream.read(buf);
         };
         let LimiterOptions { window_time, .. } = self.read_opt.as_ref().unwrap();
@@ -181,8 +185,11 @@ where
             // Before reading so that we don't count the time it takes to read
             self.last_read_check = Some(std::time::Instant::now());
             let buf_read_end = read + nb_bytes_readable.min(buf_left);
+            println!("{}| READ {} bytes", self.id, nb_bytes_readable.min(buf_left));
             let read_now = self.stream.read(&mut buf[read..buf_read_end])?;
-            if read_now < nb_bytes_readable {
+            // FIXME    If less bytes writable than bytes readable here, it'll break before
+            // if read_now < nb_bytes_readable {
+            if read_now == 0 {
                 break;
             }
             read += read_now;
@@ -205,6 +212,7 @@ where
         let writelimit = if let (_, Some(limit)) = self.stream_cap_limit() {
             limit
         } else {
+            println!("{}| WRITE DIRECT", self.id);
             return self.stream.write(buf);
         };
         let LimiterOptions { window_time, .. } = self.write_opt.as_ref().unwrap();
@@ -223,6 +231,7 @@ where
             // Before reading so that we don't count the time it takes to read
             self.last_write_check = Some(std::time::Instant::now());
             let buf_write_end = write + nb_bytes_writable.min(buf_left);
+            println!("{}| WRITE {} BYTES", self.id, nb_bytes_writable.min(buf_left));
             let write_now = self.stream.write(&buf[write..buf_write_end])?;
             if write_now < nb_bytes_writable {
                 break;

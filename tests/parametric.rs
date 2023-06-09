@@ -7,6 +7,7 @@ mod tests {
     use sha2::Digest;
 
     const INSTANT_IO_EPS : u128 = 1_500_000;
+    const DATALEN_DIVIDER: usize = 5;
 
     fn get_data_hash(data: &Vec<u8>) -> [u8; 32] {
         let mut hasher = sha2::Sha256::new();
@@ -19,9 +20,9 @@ mod tests {
             None
         } else {
             Some(LimiterOptions::new(
-                rng.gen_range((datalen / 10)..(datalen * 10)) as u128,
-                Duration::from_millis(rng.gen_range(10..200)),
-                rng.gen_range((datalen / 10)..(datalen * 10)),
+                rng.gen_range((datalen / DATALEN_DIVIDER)..(datalen * DATALEN_DIVIDER)) as u128,
+                Duration::from_millis(rng.gen_range(DATALEN_DIVIDER..(1000 / DATALEN_DIVIDER)) as u64),
+                rng.gen_range((datalen / DATALEN_DIVIDER)..(datalen * DATALEN_DIVIDER)),
             ))
         }
     }
@@ -39,12 +40,11 @@ mod tests {
             let buf = data.clone();
             let data_checksum = get_data_hash(&buf);
             
-            let mut limiter = Limiter::new(
+            let mut limiter = Limiter::new("",
                 outbuf,
                 ropts.clone(),
                 wopts.clone(),
             );
-            println!("Writing {} data with opts {:?}", datalen, wopts);
             let now = std::time::Instant::now();
             let nwrite = limiter.write(&buf).unwrap();
             let elapsed = now.elapsed();
@@ -64,12 +64,11 @@ mod tests {
 
             let read_buf = limiter.stream.into_inner();
             let mut buf = vec![0; datalen];
-            let mut limiter = Limiter::new(
+            let mut limiter = Limiter::new("",
                 std::io::Cursor::new(read_buf),
                 ropts.clone(),
                 wopts.clone(),
             );
-            println!("Reading {} data with opts {:?}", datalen, ropts);
             let now = std::time::Instant::now();
             let nread = limiter.read(buf.as_mut_slice()).unwrap();
             let elapsed = now.elapsed();
@@ -88,7 +87,7 @@ mod tests {
             assert_eq!(get_data_hash(&buf), data_checksum);
             assert_eq!(&data, &buf);
         }
-        start_parametric_test(3_000_000, vec![
+        start_parametric_test(100, vec![
             14398057406427516238,
             13640999559978117227,
         ], paramtest_buffer);
@@ -113,7 +112,7 @@ mod tests {
 
             std::thread::spawn(move || {
                 let stream = TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
-                let mut limiter = Limiter::new(
+                let mut limiter = Limiter::new("C",
                     stream,
                     ropts_connector.clone(),
                     wopts_connector.clone(),
@@ -132,6 +131,7 @@ mod tests {
                 }
 
                 let mut buf = vec![0; datalen];
+                assert_ne!(get_data_hash(&buf), datahash);
                 let now = std::time::Instant::now();
                 limiter.read_exact(&mut buf).unwrap();
                 let elapsed = now.elapsed();
@@ -147,7 +147,7 @@ mod tests {
             });
 
             for stream in listener.incoming() {
-                let mut limiter = Limiter::new(
+                let mut limiter = Limiter::new("L",
                     stream.unwrap(),
                     ropts_listener.clone(),
                     wopts_listener.clone(),
@@ -157,6 +157,7 @@ mod tests {
                 let now = std::time::Instant::now();
                 limiter.read_exact(&mut buf).unwrap();
                 let elapsed = now.elapsed();
+                assert_eq!(get_data_hash(&buf), datahash);
                 if let Some(ref opts) = ropts_listener {
                     let rate = opts.window_length.min(opts.bucket_size as u128);
                     if datalen as u128 > rate {
@@ -181,6 +182,7 @@ mod tests {
             }
         }
         start_parametric_test(3_000_000, vec![
+            16118644738678043134,
         ], paramtest_tcp);
     }
 }
