@@ -15,18 +15,54 @@
 //! assert_eq!(now.elapsed().as_secs(), 9);
 //! ```
 use std::{
+    debug_assert,
     io::{self, Read, Write},
     time::Duration,
 };
 
+const WTIME_MAX_GRANULARITY: u128 = 10_000; // 0.01 ms
+const ACCEPTABLE_SPEED_DIFF: f64 = 0.05 / 100.0;
+
+fn gcd(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        let remainder = a % b;
+        a = b;
+        b = remainder;
+    }
+    a
+}
+
+#[derive(Clone)]
 pub struct LimiterOptions {
-    window_length: u128,
-    window_time: Duration,
-    bucket_size: usize,
+    pub window_length: u64,
+    pub window_time: Duration,
+    pub bucket_size: u64,
 }
 
 impl LimiterOptions {
-    pub fn new(window_length: u128, window_time: Duration, bucket_size: usize) -> LimiterOptions {
+    pub fn new(window_length: u64, window_time: Duration, bucket_size: u64) -> LimiterOptions {
+        let rate = window_length.min(bucket_size) as f64;
+        let tw: f64 = window_time.as_nanos() as f64;
+        let speed = (rate / tw) * 1_000_000.0;
+
+        let div: u32 = gcd(window_length, bucket_size)
+            .try_into()
+            .expect("GCD overflows u32");
+        let mut new_wtime = window_time / div;
+        let mut mul = 1;
+        while new_wtime.as_nanos() < WTIME_MAX_GRANULARITY {
+            mul += 1;
+            new_wtime = (window_time * mul) / div;
+        }
+        let window_time = (window_time * mul) / div;
+        let window_length = (window_length * u64::from(mul)) / u64::from(div);
+        let bucket_size = (bucket_size * u64::from(mul)) / u64::from(div);
+
+        let rate = window_length.min(bucket_size) as f64;
+        let tw: f64 = window_time.as_nanos() as f64;
+        let speed2 = (rate / tw) * 1_000_000.0;
+        debug_assert!(((speed / speed2) - 1.0).abs() < ACCEPTABLE_SPEED_DIFF);
+
         LimiterOptions {
             window_length,
             window_time,
@@ -46,6 +82,7 @@ where
     write_opt: Option<LimiterOptions>,
     last_read_check: Option<std::time::Instant>,
     last_write_check: Option<std::time::Instant>,
+    additionnal_tokens: (u64, u64),
 }
 
 impl<S> Limiter<S>
@@ -77,17 +114,18 @@ where
             },
             read_opt,
             write_opt,
+            additionnal_tokens: (0, 0),
         }
     }
 
-    fn stream_cap_limit(&self) -> (Option<usize>, Option<usize>) {
+    fn stream_cap_limit(&self) -> (Option<u64>, Option<u64>) {
         let read_cap = if let Some(LimiterOptions {
             window_length,
             bucket_size,
             ..
         }) = self.read_opt
         {
-            Some(std::cmp::min(window_length as usize, bucket_size))
+            Some(std::cmp::min(window_length, bucket_size))
         } else {
             None
         };
@@ -97,25 +135,33 @@ where
             ..
         }) = self.write_opt
         {
-            Some(std::cmp::min(window_length as usize, bucket_size))
+            Some(std::cmp::min(window_length, bucket_size))
         } else {
             None
         };
         (read_cap, write_cap)
     }
 
-    fn tokens_available(&self) -> (Option<usize>, Option<usize>) {
+    fn tokens_available(&self) -> (Option<u64>, Option<u64>) {
         let read_tokens = if let Some(LimiterOptions {
             window_length,
             window_time,
             bucket_size,
         }) = self.read_opt
         {
-            Some(std::cmp::min(
-                ((self.last_read_check.unwrap().elapsed().as_nanos() / window_time.as_nanos())
-                    * window_length) as usize,
-                bucket_size,
-            ))
+            let lrc = match u64::try_from(self.last_read_check.unwrap().elapsed().as_nanos()) {
+                Ok(n) => n,
+                // Will cap the last_read_check at a duration of about 584 years
+                Err(_) => u64::MAX,
+            };
+            Some(
+                std::cmp::min(
+                    (lrc / u64::try_from(window_time.as_nanos())
+                        .expect("Window time nanos > u64::MAX"))
+                        * window_length,
+                    bucket_size,
+                ) + self.additionnal_tokens.0,
+            )
         } else {
             None
         };
@@ -125,11 +171,19 @@ where
             bucket_size,
         }) = self.write_opt
         {
-            Some(std::cmp::min(
-                ((self.last_write_check.unwrap().elapsed().as_nanos() / window_time.as_nanos())
-                    * window_length) as usize,
-                bucket_size,
-            ))
+            let lwc = match u64::try_from(self.last_write_check.unwrap().elapsed().as_nanos()) {
+                Ok(n) => n,
+                // Will cap the last_read_check at a duration of about 584 years
+                Err(_) => u64::MAX,
+            };
+            Some(
+                std::cmp::min(
+                    (lwc / u64::try_from(window_time.as_nanos())
+                        .expect("Window time nanos > u64::MAX"))
+                        * window_length,
+                    bucket_size,
+                ) + self.additionnal_tokens.1,
+            )
         } else {
             None
         };
@@ -152,7 +206,7 @@ where
     /// If you didn't read for 10 secondes in this stream and you try to read 10 bytes, it will read instantly.
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut read = 0;
-        let mut buf_left = buf.len();
+        let mut buf_left = u64::try_from(buf.len()).expect("R buflen to u64");
         let readlimit = if let (Some(limit), _) = self.stream_cap_limit() {
             limit
         } else {
@@ -167,22 +221,31 @@ where
                 } else {
                     Duration::ZERO
                 };
-                self.last_read_check = Some(std::time::Instant::now());
                 std::thread::sleep(window_time.saturating_sub(elapsed));
+                debug_assert!(self.tokens_available().0.unwrap() > 0);
                 continue;
             }
             // Before reading so that we don't count the time it takes to read
             self.last_read_check = Some(std::time::Instant::now());
-            let buf_read_end = read + nb_bytes_readable.min(buf_left);
-            let read_now = self.stream.read(&mut buf[read..buf_read_end])?;
-            if read_now < nb_bytes_readable {
+            let read_start = usize::try_from(read).expect("R read_start to usize");
+            let read_end = usize::try_from(read + nb_bytes_readable.min(buf_left))
+                .expect("R read_end to usize");
+            let read_now = u64::try_from(self.stream.read(&mut buf[read_start..read_end])?)
+                .expect("R read_now to u64");
+            if read_now == 0 {
                 break;
+            }
+            if read_now < nb_bytes_readable {
+                self.additionnal_tokens.0 = self
+                    .additionnal_tokens
+                    .0
+                    .saturating_add(nb_bytes_readable - read_now);
             }
             read += read_now;
             buf_left -= read_now;
         }
         self.last_read_check = Some(std::time::Instant::now());
-        Ok(read)
+        Ok(usize::try_from(read).expect("R return to usize"))
     }
 }
 
@@ -194,7 +257,7 @@ where
     /// If you didn't write for 10 secondes in this stream and you try to write 10 bytes, it will write instantly.
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut write = 0;
-        let mut buf_left = buf.len();
+        let mut buf_left = u64::try_from(buf.len()).expect("W buflen to u64");
         let writelimit = if let (_, Some(limit)) = self.stream_cap_limit() {
             limit
         } else {
@@ -209,22 +272,31 @@ where
                 } else {
                     Duration::ZERO
                 };
-                self.last_write_check = Some(std::time::Instant::now());
                 std::thread::sleep(window_time.saturating_sub(elapsed));
+                debug_assert!(self.tokens_available().1.unwrap() > 0);
                 continue;
             }
             // Before reading so that we don't count the time it takes to read
             self.last_write_check = Some(std::time::Instant::now());
-            let buf_write_end = write + nb_bytes_writable.min(buf_left);
-            let write_now = self.stream.write(&buf[write..buf_write_end])?;
+            let write_start = usize::try_from(write).expect("W write_start to usize");
+            let write_end = usize::try_from(write + nb_bytes_writable.min(buf_left))
+                .expect("W write_end to usize");
+            let write_now = u64::try_from(self.stream.write(&buf[write_start..write_end])?)
+                .expect("W write_now_ to u64");
             if write_now < nb_bytes_writable {
                 break;
+            }
+            if write_now < nb_bytes_writable {
+                self.additionnal_tokens.1 = self
+                    .additionnal_tokens
+                    .1
+                    .saturating_add(nb_bytes_writable - write_now);
             }
             write += write_now;
             buf_left -= write_now;
         }
         self.last_write_check = Some(std::time::Instant::now());
-        Ok(write)
+        Ok(usize::try_from(write).expect("W return to usize"))
     }
 
     fn flush(&mut self) -> io::Result<()> {
