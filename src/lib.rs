@@ -44,11 +44,10 @@ impl LimiterOptions {
         let mut new_wtime = window_time;
         let mut new_bsize = bucket_size;
 
-        // While the difference between the intented speed (init_speed) and the reduced one (new_speed) is under the threshold 
+        // While the difference between the intented speed (init_speed) and the reduced one (new_speed) is under the threshold
         //    Each iteration, divide all the options by 2, and recompute the speed (in order to check if it's not altered)
         //    Because we want the values BEFORE the speed is above the threshold, assign the new values on start of the new iter only
         while ((new_speed / init_speed) - 1.0).abs() < ACCEPTABLE_SPEED_DIFF {
-
             // Values from past iter, we know they're under the threshold
             window_length = new_wlen;
             window_time = new_wtime;
