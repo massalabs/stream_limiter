@@ -108,9 +108,16 @@ mod tests {
             let data: Vec<u8> = (0..datalen).map(|_| rng.gen::<u8>()).collect();
             let data_c = data.clone();
             let datahash = get_data_hash(&data);
-            let port = 10000 + rng.gen_range(0..(u16::MAX - 10000));
+            let mut port = 10000 + rng.gen_range(0..(u16::MAX - 10000));
 
-            let listener = TcpListener::bind(format!("127.0.0.1:{port}")).unwrap();
+            let listener = loop {
+                match TcpListener::bind(format!("127.0.0.1:{port}")) {
+                    Ok(l) => break l,
+                    Err(_) => {
+                        port += 1;
+                    }
+                }
+            };
 
             let connector = std::thread::spawn(move || {
                 let stream = TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
