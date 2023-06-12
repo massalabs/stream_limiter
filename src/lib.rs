@@ -17,22 +17,12 @@
 use std::{
     debug_assert,
     io::{self, Read, Write},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-const WTIME_MAX_GRANULARITY: u128 = 10_000; // 0.01 ms
-const ACCEPTABLE_SPEED_DIFF: f64 = 0.05 / 100.0;
+const ACCEPTABLE_SPEED_DIFF: f64 = 0.1 / 100.0;
 
-fn gcd(mut a: u64, mut b: u64) -> u64 {
-    while b != 0 {
-        let remainder = a % b;
-        a = b;
-        b = remainder;
-    }
-    a
-}
-
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LimiterOptions {
     pub window_length: u64,
     pub window_time: Duration,
@@ -40,29 +30,36 @@ pub struct LimiterOptions {
 }
 
 impl LimiterOptions {
-    pub fn new(window_length: u64, window_time: Duration, bucket_size: u64) -> LimiterOptions {
+    pub fn new(mut window_length: u64, mut window_time: Duration, mut bucket_size: u64) -> LimiterOptions {
+        let rate = window_length.min(bucket_size) as f64;
+        let tw: f64 = window_time.as_nanos() as f64;
+        let init_speed = (rate / tw) * 1_000_000.0;
+        // println!("Opts: {} {:?} {} ({} b/s)", window_length, window_time, bucket_size, init_speed);
+        
+        let mut new_speed = init_speed;
+        let mut new_wlen = window_length;
+        let mut new_wtime = window_time;
+        let mut new_bsize = bucket_size;
+        while ((new_speed / init_speed) - 1.0).abs() < ACCEPTABLE_SPEED_DIFF {
+            window_length = new_wlen;
+            window_time = new_wtime;
+            bucket_size = new_bsize;
+            if (new_wlen == 1) || (new_bsize == 1) || (new_wtime.as_nanos() == 1) {
+                break;
+            }
+            new_wlen /= 2;
+            new_wtime /= 2;
+            new_bsize /= 2;
+            let rate = new_wlen.min(new_bsize) as f64;
+            let tw: f64 = new_wtime.as_nanos() as f64;
+            new_speed = (rate / tw) * 1_000_000.0;
+            // println!("Opts: {} {:?} {} ({} b/s)", new_wlen, new_wtime, new_bsize, new_speed);
+            // println!("{:.5}%", ((new_speed / init_speed) - 1.0).abs() * 100.0);
+        }
         let rate = window_length.min(bucket_size) as f64;
         let tw: f64 = window_time.as_nanos() as f64;
         let speed = (rate / tw) * 1_000_000.0;
-
-        let div: u32 = gcd(window_length, bucket_size)
-            .try_into()
-            .expect("GCD overflows u32");
-        let mut new_wtime = window_time / div;
-        let mut mul = 1;
-        while new_wtime.as_nanos() < WTIME_MAX_GRANULARITY {
-            mul += 1;
-            new_wtime = (window_time * mul) / div;
-        }
-        let window_time = (window_time * mul) / div;
-        let window_length = (window_length * u64::from(mul)) / u64::from(div);
-        let bucket_size = (bucket_size * u64::from(mul)) / u64::from(div);
-
-        let rate = window_length.min(bucket_size) as f64;
-        let tw: f64 = window_time.as_nanos() as f64;
-        let speed2 = (rate / tw) * 1_000_000.0;
-        debug_assert!(((speed / speed2) - 1.0).abs() < ACCEPTABLE_SPEED_DIFF);
-
+        // println!("Opts: {} {:?} {} ({} b/s)", window_length, window_time, bucket_size, speed);
         LimiterOptions {
             window_length,
             window_time,
@@ -212,6 +209,7 @@ where
         } else {
             return self.stream.read(buf);
         };
+        let tot_now = Instant::now();
         let LimiterOptions { window_time, .. } = self.read_opt.as_ref().unwrap();
         while buf_left > 0 {
             let nb_bytes_readable = self.tokens_available().0.unwrap().min(buf_left);
@@ -221,6 +219,7 @@ where
                 } else {
                     Duration::ZERO
                 };
+                // println!("Sleep {:?}", window_time.saturating_sub(elapsed));
                 std::thread::sleep(window_time.saturating_sub(elapsed));
                 debug_assert!(self.tokens_available().0.unwrap() > 0);
                 continue;
@@ -232,10 +231,12 @@ where
                 .expect("R read_end to usize");
             let read_now = u64::try_from(self.stream.read(&mut buf[read_start..read_end])?)
                 .expect("R read_now to u64");
+            // println!("{:?}| Read {} bytes (tot {})", tot_now.elapsed(), read_now, read);
             if read_now == 0 {
                 break;
             }
             if read_now < nb_bytes_readable {
+                // println!("Read now: {}/{}, add {} tokens", read_now, nb_bytes_readable, nb_bytes_readable - read_now);
                 self.additionnal_tokens.0 = self
                     .additionnal_tokens
                     .0

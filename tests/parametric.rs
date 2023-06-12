@@ -97,9 +97,13 @@ mod tests {
 
         fn paramtest_tcp<R: rand::Rng>(mut rng: R) {
             let datalen = rng.gen_range(10..1024 * 512);
+            // println!("Wopts connector");
             let wopts_connector: Option<LimiterOptions> = get_random_options(&mut rng, datalen);
+            // println!("Wopts listener");
             let wopts_listener: Option<LimiterOptions> = get_random_options(&mut rng, datalen);
+            // println!("Ropts connector");
             let ropts_connector = get_random_options(&mut rng, datalen);
+            // println!("Ropts listener");
             let ropts_listener = get_random_options(&mut rng, datalen);
             let data: Vec<u8> = (0..datalen).map(|_| rng.gen::<u8>()).collect();
             let data_c = data.clone();
@@ -121,11 +125,9 @@ mod tests {
                     if datalen as u64 > rate {
                         assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
                     }
-                    //     Cannot assert that it's fast enough as it's cut because of
-                    //        TCP packets max size
-                    //  else {
-                    //     assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
-                    // }
+                     else {
+                        assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
+                    }
                 }
 
                 let mut limiter = Limiter::new(
@@ -144,11 +146,11 @@ mod tests {
                     if datalen as u64 > rate {
                         assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
                     }
-                    //     Cannot assert that it's fast enough as it's cut because of
-                    //        TCP packets max size
-                    // else {
-                    //     assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
-                    // }
+                    else {
+                        println!("{:?} (datalen {datalen})", opts);
+                        println!("{:?} <= {:?} ?", elapsed, opts.window_time);
+                        assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
+                    }
                 }
             });
             std::thread::sleep(Duration::from_millis(50));
@@ -170,11 +172,10 @@ mod tests {
                     if datalen as u64 > rate {
                         assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
                     }
-                    //     Cannot assert that it's fast enough as it's cut because of
-                    //        TCP packets max size
-                    // else {
-                    //     assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
-                    // }
+                    else {
+                        println!("{:?} <= {:?} ?", elapsed, opts.window_time);
+                        assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
+                    }
                 }
 
                 let mut limiter =
@@ -187,19 +188,19 @@ mod tests {
                     if datalen as u64 > rate {
                         assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
                     }
-                    //     Cannot assert that it's fast enough as it's cut because of
-                    //        TCP packets max size
-                    // else {
-                    //     assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
-                    // }
+                    else {
+                        assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
+                    }
                 }
                 break;
             }
-            connector.join().unwrap();
+            assert!(connector.join().is_ok());
         }
         start_parametric_test(
             100,
             vec![
+                3911014536179701959,
+                2770066496784563521,
                 16118644738678043134,
                 15039019555209573434,
                 18348045085902583881,
