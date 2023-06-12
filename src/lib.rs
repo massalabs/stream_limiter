@@ -38,32 +38,38 @@ impl LimiterOptions {
         let rate = window_length.min(bucket_size) as f64;
         let tw: f64 = window_time.as_nanos() as f64;
         let init_speed = (rate / tw) * 1_000_000.0;
-        // println!("Opts: {} {:?} {} ({} b/s)", window_length, window_time, bucket_size, init_speed);
 
         let mut new_speed = init_speed;
         let mut new_wlen = window_length;
         let mut new_wtime = window_time;
         let mut new_bsize = bucket_size;
+
+        // While the difference between the intented speed (init_speed) and the reduced one (new_speed) is under the threshold 
+        //    Each iteration, divide all the options by 2, and recompute the speed (in order to check if it's not altered)
+        //    Because we want the values BEFORE the speed is above the threshold, assign the new values on start of the new iter only
         while ((new_speed / init_speed) - 1.0).abs() < ACCEPTABLE_SPEED_DIFF {
+
+            // Values from past iter, we know they're under the threshold
             window_length = new_wlen;
             window_time = new_wtime;
             bucket_size = new_bsize;
+
+            // If values aren't dividable by 2
             if (new_wlen == 1) || (new_bsize == 1) || (new_wtime.as_nanos() == 1) {
                 break;
             }
+
+            // Reduce the options
             new_wlen /= 2;
             new_wtime /= 2;
             new_bsize /= 2;
+
+            // Recompute the new speed
             let rate = new_wlen.min(new_bsize) as f64;
             let tw: f64 = new_wtime.as_nanos() as f64;
             new_speed = (rate / tw) * 1_000_000.0;
-            // println!("Opts: {} {:?} {} ({} b/s)", new_wlen, new_wtime, new_bsize, new_speed);
-            // println!("{:.5}%", ((new_speed / init_speed) - 1.0).abs() * 100.0);
         }
-        let rate = window_length.min(bucket_size) as f64;
-        let tw: f64 = window_time.as_nanos() as f64;
-        let _speed = (rate / tw) * 1_000_000.0;
-        // println!("Opts: {} {:?} {} ({} b/s)", window_length, window_time, bucket_size, speed);
+
         LimiterOptions {
             window_length,
             window_time,
