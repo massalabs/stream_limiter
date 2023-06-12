@@ -124,8 +124,7 @@ mod tests {
                     let rate = opts.window_length.min(opts.bucket_size);
                     if datalen as u64 > rate {
                         assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
-                    }
-                     else {
+                    } else {
                         assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
                     }
                 }
@@ -145,8 +144,7 @@ mod tests {
                     let rate = opts.window_length.min(opts.bucket_size);
                     if datalen as u64 > rate {
                         assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
-                    }
-                    else {
+                    } else {
                         println!("{:?} (datalen {datalen})", opts);
                         println!("{:?} <= {:?} ?", elapsed, opts.window_time);
                         assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
@@ -171,8 +169,7 @@ mod tests {
                     let rate = opts.window_length.min(opts.bucket_size);
                     if datalen as u64 > rate {
                         assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
-                    }
-                    else {
+                    } else {
                         println!("{:?} <= {:?} ?", elapsed, opts.window_time);
                         assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
                     }
@@ -187,8 +184,7 @@ mod tests {
                     let rate = opts.window_length.min(opts.bucket_size);
                     if datalen as u64 > rate {
                         assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
-                    }
-                    else {
+                    } else {
                         assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
                     }
                 }

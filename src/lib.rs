@@ -30,12 +30,16 @@ pub struct LimiterOptions {
 }
 
 impl LimiterOptions {
-    pub fn new(mut window_length: u64, mut window_time: Duration, mut bucket_size: u64) -> LimiterOptions {
+    pub fn new(
+        mut window_length: u64,
+        mut window_time: Duration,
+        mut bucket_size: u64,
+    ) -> LimiterOptions {
         let rate = window_length.min(bucket_size) as f64;
         let tw: f64 = window_time.as_nanos() as f64;
         let init_speed = (rate / tw) * 1_000_000.0;
         // println!("Opts: {} {:?} {} ({} b/s)", window_length, window_time, bucket_size, init_speed);
-        
+
         let mut new_speed = init_speed;
         let mut new_wlen = window_length;
         let mut new_wtime = window_time;
@@ -58,7 +62,7 @@ impl LimiterOptions {
         }
         let rate = window_length.min(bucket_size) as f64;
         let tw: f64 = window_time.as_nanos() as f64;
-        let speed = (rate / tw) * 1_000_000.0;
+        let _speed = (rate / tw) * 1_000_000.0;
         // println!("Opts: {} {:?} {} ({} b/s)", window_length, window_time, bucket_size, speed);
         LimiterOptions {
             window_length,
@@ -209,7 +213,7 @@ where
         } else {
             return self.stream.read(buf);
         };
-        let tot_now = Instant::now();
+        let _tot_now = Instant::now();
         let LimiterOptions { window_time, .. } = self.read_opt.as_ref().unwrap();
         while buf_left > 0 {
             let nb_bytes_readable = self.tokens_available().0.unwrap().min(buf_left);
