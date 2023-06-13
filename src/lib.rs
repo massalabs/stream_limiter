@@ -17,10 +17,10 @@
 use std::{
     debug_assert,
     io::{self, Read, Write},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-const ACCEPTABLE_SPEED_DIFF: f64 = 0.1 / 100.0;
+const ACCEPTABLE_SPEED_DIFF: f64 = 4.0 / 100.0;
 
 #[derive(Clone, Debug)]
 pub struct LimiterOptions {
@@ -218,7 +218,6 @@ where
         } else {
             return self.stream.read(buf);
         };
-        let _tot_now = Instant::now();
         let LimiterOptions { window_time, .. } = self.read_opt.as_ref().unwrap();
         while buf_left > 0 {
             let nb_bytes_readable = self.tokens_available().0.unwrap().min(buf_left);
@@ -228,7 +227,6 @@ where
                 } else {
                     Duration::ZERO
                 };
-                // println!("Sleep {:?}", window_time.saturating_sub(elapsed));
                 std::thread::sleep(window_time.saturating_sub(elapsed));
                 debug_assert!(self.tokens_available().0.unwrap() > 0);
                 continue;
