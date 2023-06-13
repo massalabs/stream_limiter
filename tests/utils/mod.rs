@@ -1,6 +1,8 @@
 use hex_literal::hex;
 use sha2::Digest;
 
+pub mod paramtests;
+
 // The checksum and the size of the data (to trim the buffer)
 pub const FILE_BIG: ([u8; 32], usize) = (
     hex!("55e28ecbd9ea1df018ffacd137ee8d62551eb2d6fbd46508bca7809005ff267a"),
@@ -27,10 +29,10 @@ pub fn assert_checksum_samedata<const N: usize>(buf: &[u8], data: u8) {
     if N <= 50 {
         println!("{:?}\n{:?}", samedata, buf);
     }
-    hasher.update(&[data; N]);
+    hasher.update([data; N]);
     let samedata_hash = hasher.finalize();
 
     let mut hasher = sha2::Sha256::new();
-    hasher.update(&buf);
+    hasher.update(buf);
     assert_eq!(hasher.finalize()[..], samedata_hash[..]);
 }

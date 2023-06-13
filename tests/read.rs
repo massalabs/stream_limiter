@@ -72,7 +72,7 @@ mod tests {
         let file = File::open("tests/resources/test.txt").unwrap();
         let mut limiter = Limiter::new(
             file,
-            Some(LimiterOptions::new(100, Duration::from_secs(1), 1000)),
+            Some(LimiterOptions::new(1000, Duration::from_secs(1), 1000)),
             None,
         );
         assert!(limiter.limits().0);

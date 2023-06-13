@@ -17,3 +17,7 @@ keywords = ["rate", "rate_limiting", "synchronous", "stream"]
 [dev-dependencies]
 sha2 = "0.10.6"
 hex-literal = "0.4.1"
+rand = { version = "0.8.5", features = ["small_rng"] }
+
+[features]
+heavy_testing = []
