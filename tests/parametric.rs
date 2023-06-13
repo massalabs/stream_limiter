@@ -97,13 +97,9 @@ mod tests {
 
         fn paramtest_tcp<R: rand::Rng>(mut rng: R) {
             let datalen = rng.gen_range(10..1024 * 512);
-            // println!("Wopts connector");
             let wopts_connector: Option<LimiterOptions> = get_random_options(&mut rng, datalen);
-            // println!("Wopts listener");
             let wopts_listener: Option<LimiterOptions> = get_random_options(&mut rng, datalen);
-            // println!("Ropts connector");
             let ropts_connector = get_random_options(&mut rng, datalen);
-            // println!("Ropts listener");
             let ropts_listener = get_random_options(&mut rng, datalen);
             let data: Vec<u8> = (0..datalen).map(|_| rng.gen::<u8>()).collect();
             let data_c = data.clone();
@@ -152,8 +148,6 @@ mod tests {
                     if datalen as u64 > rate {
                         assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
                     } else {
-                        println!("{:?} (datalen {datalen})", opts);
-                        println!("{:?} <= {:?} ?", elapsed, opts.window_time);
                         assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
                     }
                 }
@@ -177,7 +171,6 @@ mod tests {
                     if datalen as u64 > rate {
                         assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
                     } else {
-                        println!("{:?} <= {:?} ?", elapsed, opts.window_time);
                         assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
                     }
                 }

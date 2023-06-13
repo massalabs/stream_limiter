@@ -238,12 +238,10 @@ where
                 .expect("R read_end to usize");
             let read_now = u64::try_from(self.stream.read(&mut buf[read_start..read_end])?)
                 .expect("R read_now to u64");
-            // println!("{:?}| Read {} bytes (tot {})", tot_now.elapsed(), read_now, read);
             if read_now == 0 {
                 break;
             }
             if read_now < nb_bytes_readable {
-                // println!("Read now: {}/{}, add {} tokens", read_now, nb_bytes_readable, nb_bytes_readable - read_now);
                 self.additionnal_tokens.0 = self
                     .additionnal_tokens
                     .0
