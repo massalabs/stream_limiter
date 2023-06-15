@@ -163,8 +163,7 @@ where
             Some(
                 std::cmp::min(
                     (lrc / u64::try_from(window_time.as_nanos())
-                        .expect("Window time nanos > u64::MAX"))
-                        * window_length,
+                        .expect("Window time nanos > u64::MAX")).saturating_mul(window_length),
                     bucket_size,
                 ) + self.additionnal_tokens.0,
             )
@@ -185,8 +184,7 @@ where
             Some(
                 std::cmp::min(
                     (lwc / u64::try_from(window_time.as_nanos())
-                        .expect("Window time nanos > u64::MAX"))
-                        * window_length,
+                        .expect("Window time nanos > u64::MAX")).saturating_mul(window_length),
                     bucket_size,
                 ) + self.additionnal_tokens.1,
             )
