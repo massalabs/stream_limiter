@@ -163,9 +163,11 @@ where
             Some(
                 std::cmp::min(
                     (lrc / u64::try_from(window_time.as_nanos())
-                        .expect("Window time nanos > u64::MAX")).saturating_mul(window_length),
+                        .expect("Window time nanos > u64::MAX"))
+                    .saturating_mul(window_length),
                     bucket_size,
-                ).saturating_add(self.additionnal_tokens.0),
+                )
+                .saturating_add(self.additionnal_tokens.0),
             )
         } else {
             None
@@ -184,9 +186,11 @@ where
             Some(
                 std::cmp::min(
                     (lwc / u64::try_from(window_time.as_nanos())
-                        .expect("Window time nanos > u64::MAX")).saturating_mul(window_length),
+                        .expect("Window time nanos > u64::MAX"))
+                    .saturating_mul(window_length),
                     bucket_size,
-                ).saturating_add(self.additionnal_tokens.1)
+                )
+                .saturating_add(self.additionnal_tokens.1),
             )
         } else {
             None
@@ -260,7 +264,7 @@ where
     /// Write a stream at a given rate. If the rate is 1 byte/s, it will take 1 second to write 1 byte. (except the first time which is instant)
     /// If you didn't write for 10 secondes in this stream and you try to write 10 bytes, it will write instantly.
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut write : u64= 0;
+        let mut write: u64 = 0;
         let mut buf_left = u64::try_from(buf.len()).expect("W buflen to u64");
         let writelimit = if let (_, Some(limit)) = self.stream_cap_limit() {
             limit
