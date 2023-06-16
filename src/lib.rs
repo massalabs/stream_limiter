@@ -164,9 +164,10 @@ where
                 std::cmp::min(
                     (lrc / u64::try_from(window_time.as_nanos())
                         .expect("Window time nanos > u64::MAX"))
-                        * window_length,
+                    .saturating_mul(window_length),
                     bucket_size,
-                ) + self.additionnal_tokens.0,
+                )
+                .saturating_add(self.additionnal_tokens.0),
             )
         } else {
             None
@@ -186,9 +187,10 @@ where
                 std::cmp::min(
                     (lwc / u64::try_from(window_time.as_nanos())
                         .expect("Window time nanos > u64::MAX"))
-                        * window_length,
+                    .saturating_mul(window_length),
                     bucket_size,
-                ) + self.additionnal_tokens.1,
+                )
+                .saturating_add(self.additionnal_tokens.1),
             )
         } else {
             None
@@ -211,7 +213,7 @@ where
     /// Read a stream at a given rate. If the rate is 1 byte/s, it will take 1 second to read 1 byte. (except the first time which is instant)
     /// If you didn't read for 10 secondes in this stream and you try to read 10 bytes, it will read instantly.
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut read = 0;
+        let mut read: u64 = 0;
         let mut buf_left = u64::try_from(buf.len()).expect("R buflen to u64");
         let readlimit = if let (Some(limit), _) = self.stream_cap_limit() {
             limit
@@ -234,7 +236,7 @@ where
             // Before reading so that we don't count the time it takes to read
             self.last_read_check = Some(std::time::Instant::now());
             let read_start = usize::try_from(read).expect("R read_start to usize");
-            let read_end = usize::try_from(read + nb_bytes_readable.min(buf_left))
+            let read_end = usize::try_from(read.saturating_add(nb_bytes_readable.min(buf_left)))
                 .expect("R read_end to usize");
             let read_now = u64::try_from(self.stream.read(&mut buf[read_start..read_end])?)
                 .expect("R read_now to u64");
@@ -245,10 +247,10 @@ where
                 self.additionnal_tokens.0 = self
                     .additionnal_tokens
                     .0
-                    .saturating_add(nb_bytes_readable - read_now);
+                    .saturating_add(nb_bytes_readable.saturating_sub(read_now));
             }
-            read += read_now;
-            buf_left -= read_now;
+            read = read.saturating_add(read_now);
+            buf_left = buf_left.saturating_sub(read_now);
         }
         self.last_read_check = Some(std::time::Instant::now());
         Ok(usize::try_from(read).expect("R return to usize"))
@@ -262,7 +264,7 @@ where
     /// Write a stream at a given rate. If the rate is 1 byte/s, it will take 1 second to write 1 byte. (except the first time which is instant)
     /// If you didn't write for 10 secondes in this stream and you try to write 10 bytes, it will write instantly.
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut write = 0;
+        let mut write: u64 = 0;
         let mut buf_left = u64::try_from(buf.len()).expect("W buflen to u64");
         let writelimit = if let (_, Some(limit)) = self.stream_cap_limit() {
             limit
@@ -285,7 +287,7 @@ where
             // Before reading so that we don't count the time it takes to read
             self.last_write_check = Some(std::time::Instant::now());
             let write_start = usize::try_from(write).expect("W write_start to usize");
-            let write_end = usize::try_from(write + nb_bytes_writable.min(buf_left))
+            let write_end = usize::try_from(write.saturating_add(nb_bytes_writable.min(buf_left)))
                 .expect("W write_end to usize");
             let write_now = u64::try_from(self.stream.write(&buf[write_start..write_end])?)
                 .expect("W write_now_ to u64");
@@ -296,10 +298,10 @@ where
                 self.additionnal_tokens.1 = self
                     .additionnal_tokens
                     .1
-                    .saturating_add(nb_bytes_writable - write_now);
+                    .saturating_add(nb_bytes_writable.saturating_sub(write_now));
             }
-            write += write_now;
-            buf_left -= write_now;
+            write = write.saturating_add(write_now);
+            buf_left = buf_left.saturating_sub(write_now);
         }
         self.last_write_check = Some(std::time::Instant::now());
         Ok(usize::try_from(write).expect("W return to usize"))
