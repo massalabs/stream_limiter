@@ -17,7 +17,7 @@
 use std::{
     debug_assert,
     io::{self, Read, Write},
-    time::Duration, debug_assert_ne,
+    time::{Duration, Instant}, debug_assert_ne,
 };
 
 #[derive(Clone, Debug)]
@@ -25,6 +25,7 @@ pub struct LimiterOptions {
     pub window_length: u64,
     pub window_time: Duration,
     pub bucket_size: u64,
+    pub min_operation_size: u64,
 }
 
 impl LimiterOptions {
@@ -37,14 +38,31 @@ impl LimiterOptions {
             window_length,
             window_time,
             bucket_size,
+            min_operation_size: 1,
         }
     }
 }
 
 impl LimiterOptions {
-    pub fn intersect(&self, _other: &LimiterOptions) -> LimiterOptions {
-        // TODO    Implement this intersection
-        todo!()        
+    pub fn set_min_operation_size(&mut self, val: u64) {
+        assert_ne!(val, 0);
+        self.min_operation_size = val;
+    }
+
+    pub fn intersect(&self, other: &LimiterOptions) -> LimiterOptions {
+        let rate_a = self.window_length.min(self.bucket_size) as f64;
+        let tw_a = self.window_time.as_nanos() as f64;
+        let speed_a = (rate_a / tw_a) * 1_000_000.0;
+
+        let rate_b = other.window_length.min(other.bucket_size) as f64;
+        let tw_b = other.window_time.as_nanos() as f64;
+        let speed_b = (rate_b / tw_b) * 1_000_000.0;
+
+        if speed_a < speed_b {
+            self.clone()
+        } else {
+            other.clone()
+        }
     }
 }
 
@@ -54,6 +72,7 @@ pub struct Limiter<S>
 where
     S: Read + Write,
 {
+    ident: &'static str,
     pub stream: S,
     read_opt: Option<LimiterOptions>,
     write_opt: Option<LimiterOptions>,
@@ -72,11 +91,13 @@ where
     ///
     /// We initialize the limiter as if one period has already passed so that the first read/write is instant.
     pub fn new(
+        ident: &'static str,
         stream: S,
         read_opt: Option<LimiterOptions>,
         write_opt: Option<LimiterOptions>,
     ) -> Limiter<S> {
         Limiter {
+            ident,
             stream,
             // We start at the beginning of last time window
             last_read_check: if read_opt.is_some() {
@@ -171,7 +192,6 @@ where
         } else {
             None
         };
-        self.additionnal_tokens = (0, 0);
         (read_tokens, write_tokens)
     }
 
@@ -190,6 +210,7 @@ where
     /// Read a stream at a given rate. If the rate is 1 byte/s, it will take 1 second to read 1 byte. (except the first time which is instant)
     /// If you didn't read for 10 secondes in this stream and you try to read 10 bytes, it will read instantly.
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let took_total = Instant::now();
         let mut read: u64 = 0;
         let mut buf_left = u64::try_from(buf.len()).expect("R buflen to u64");
         let readlimit = if let (Some(limit), _) = self.stream_cap_limit() {
@@ -197,19 +218,33 @@ where
         } else {
             return self.stream.read(buf);
         };
-        let LimiterOptions { window_time, .. } = self.read_opt.as_ref().unwrap();
+        let LimiterOptions { window_time, min_operation_size, .. } = self.read_opt.as_ref().unwrap();
+        let min_operation_size = min_operation_size.clone();
         let tsleep = *window_time / (TryInto::<u32>::try_into(readlimit).unwrap());
         debug_assert_ne!(tsleep.as_nanos(), 0);
+        let sleep_threshold = readlimit.min(min_operation_size);
         while buf_left > 0 {
             let nb_bytes_readable = self.tokens_available().0.unwrap().min(buf_left);
-            if nb_bytes_readable < readlimit.min(buf_left) {
-                let elapsed = if let Some(lrc) = self.last_read_check {
-                    lrc.elapsed()
-                } else {
-                    Duration::ZERO
-                };
-                std::thread::sleep(tsleep.saturating_sub(elapsed));
-                debug_assert!(self.tokens_available().0.unwrap() > 0);
+            if nb_bytes_readable < sleep_threshold.min(buf_left) {
+                let nb_left : u32 = sleep_threshold
+                    .min(buf_left)
+                    .saturating_sub(nb_bytes_readable).try_into().expect("Read nb left > u32::MAX");
+                // println!(
+                //     "{} sleeping {:?} to get above {} bytes",
+                //     self.ident,
+                //     tsleep * nb_left,
+                //     sleep_threshold.min(buf_left),
+                // );
+                std::thread::sleep(tsleep * nb_left);
+
+                #[cfg(debug_assertions)]
+                {
+                    let new_nb_bytes_readable = self.tokens_available().0.unwrap();
+                    debug_assert!(new_nb_bytes_readable > nb_bytes_readable,
+                        "\n{:?}\nTsleep: {tsleep:?}\nReadlimit: {readlimit}\n",
+                        self.read_opt.as_ref(),
+                    );
+                }
                 continue;
             }
             // Before reading so that we don't count the time it takes to read
@@ -217,21 +252,22 @@ where
             let read_start = usize::try_from(read).expect("R read_start to usize");
             let read_end = usize::try_from(read.saturating_add(nb_bytes_readable.min(buf_left)))
                 .expect("R read_end to usize");
+            // println!("{} {:?} Ready to read up to {} bytes",
+            //     self.ident, took_total.elapsed(), nb_bytes_readable,
+            // );
             let read_now = u64::try_from(self.stream.read(&mut buf[read_start..read_end])?)
                 .expect("R read_now to u64");
+            // println!("{} {:?} read {} bytes ({buf_left} left)", self.ident, took_total.elapsed(), read_now);
             if read_now == 0 {
                 break;
             }
-            if read_now < nb_bytes_readable {
-                self.additionnal_tokens.0 = self
-                    .additionnal_tokens
-                    .0
-                    .saturating_add(nb_bytes_readable.saturating_sub(read_now));
-            }
+            self.additionnal_tokens = (nb_bytes_readable.saturating_sub(read_now), self.additionnal_tokens.1);
             read = read.saturating_add(read_now);
             buf_left = buf_left.saturating_sub(read_now);
         }
         self.last_read_check = Some(std::time::Instant::now());
+
+        // println!("{} Read took {:?}", self.ident, took_total.elapsed());
         Ok(usize::try_from(read).expect("R return to usize"))
     }
 }
@@ -243,6 +279,7 @@ where
     /// Write a stream at a given rate. If the rate is 1 byte/s, it will take 1 second to write 1 byte. (except the first time which is instant)
     /// If you didn't write for 10 secondes in this stream and you try to write 10 bytes, it will write instantly.
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let took_total = Instant::now();
         let mut write: u64 = 0;
         let mut buf_left = u64::try_from(buf.len()).expect("W buflen to u64");
         let writelimit = if let (_, Some(limit)) = self.stream_cap_limit() {
@@ -250,19 +287,37 @@ where
         } else {
             return self.stream.write(buf);
         };
-        let LimiterOptions { window_time, .. } = self.write_opt.as_ref().unwrap();
+        let LimiterOptions { window_time, min_operation_size, .. } = self.write_opt.as_ref().unwrap();
+        let min_operation_size = min_operation_size.clone();
+
+        // Necessary time to get 1 byte of data
         let tsleep = *window_time / (TryInto::<u32>::try_into(writelimit).unwrap());
         debug_assert_ne!(tsleep.as_nanos(), 0);
+
+        let sleep_threshold = writelimit.min(min_operation_size);
         while buf_left > 0 {
             let nb_bytes_writable = self.tokens_available().1.unwrap().min(buf_left);
-            if nb_bytes_writable < writelimit.min(buf_left) {
-                let elapsed = if let Some(lwc) = self.last_write_check {
-                    lwc.elapsed()
-                } else {
-                    Duration::ZERO
-                };
-                std::thread::sleep(tsleep.saturating_sub(elapsed));
-                debug_assert!(self.tokens_available().1.unwrap() > 0);
+            if nb_bytes_writable < sleep_threshold.min(buf_left) {
+                let nb_left : u32 = sleep_threshold
+                    .min(buf_left)
+                    .saturating_sub(nb_bytes_writable).try_into().expect("Write nb left > u32::MAX");
+                // println!(
+                //     "{} sleeping {:?} to get above {} bytes",
+                //     self.ident,
+                //     tsleep * nb_left,
+                //     sleep_threshold.min(buf_left),
+                // );
+                std::thread::sleep(tsleep * nb_left);
+
+                #[cfg(debug_assertions)]
+                {
+                    let new_nb_bytes_writable = self.tokens_available().1.unwrap();
+                    debug_assert!(new_nb_bytes_writable > nb_bytes_writable,
+                        "\n{:?}\nTsleep: {tsleep:?}\nWritelimit: {writelimit}\n",
+                        self.write_opt.as_ref(),
+                    );
+                    // println!("{} {:?} slept {:?}, can write {new_nb_bytes_writable} bytes now", self.ident, took_total.elapsed(), tsleep * nb_left);
+                }
                 continue;
             }
             // Before reading so that we don't count the time it takes to read
@@ -270,17 +325,18 @@ where
             let write_start = usize::try_from(write).expect("W write_start to usize");
             let write_end = usize::try_from(write.saturating_add(nb_bytes_writable.min(buf_left)))
                 .expect("W write_end to usize");
+            // println!("{} {:?} Ready to write up to {} bytes",
+            //     self.ident, took_total.elapsed(), nb_bytes_writable,
+            // );
             let write_now = u64::try_from(self.stream.write(&buf[write_start..write_end])?)
                 .expect("W write_now_ to u64");
+            // println!("{} {:?} Wrote {} bytes ({buf_left} left)",
+            //     self.ident, took_total.elapsed(), write_now,
+            // );
             if write_now < nb_bytes_writable {
                 break;
             }
-            if write_now < nb_bytes_writable {
-                self.additionnal_tokens.1 = self
-                    .additionnal_tokens
-                    .1
-                    .saturating_add(nb_bytes_writable.saturating_sub(write_now));
-            }
+            self.additionnal_tokens = (self.additionnal_tokens.0, nb_bytes_writable.saturating_sub(write_now));
             write = write.saturating_add(write_now);
             buf_left = buf_left.saturating_sub(write_now);
         }

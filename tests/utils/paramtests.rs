@@ -12,7 +12,7 @@ where
     let nbiter = nbiter * 100;
 
     for seed in regressions.iter() {
-        println!("Test regression seed {}", seed);
+        println!("\nTest regression seed {}", seed);
         function(SmallRng::seed_from_u64(*seed));
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -21,7 +21,7 @@ where
     let nspace = nbiter.to_string().len();
     for n in 0..nbiter {
         let new_seed: u64 = seeder.gen();
-        print!("{:1$}", n + 1, nspace);
+        print!("\n{:1$}", n + 1, nspace);
         println!("/{}| Seed {:20}", nbiter, new_seed);
         function(SmallRng::seed_from_u64(new_seed));
         std::thread::sleep(Duration::from_millis(50));
