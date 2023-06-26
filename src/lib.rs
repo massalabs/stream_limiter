@@ -17,10 +17,8 @@
 use std::{
     debug_assert,
     io::{self, Read, Write},
-    time::Duration,
+    time::Duration, debug_assert_ne,
 };
-
-const ACCEPTABLE_SPEED_DIFF: f64 = 4.0 / 100.0;
 
 #[derive(Clone, Debug)]
 pub struct LimiterOptions {
@@ -31,49 +29,22 @@ pub struct LimiterOptions {
 
 impl LimiterOptions {
     pub fn new(
-        mut window_length: u64,
-        mut window_time: Duration,
-        mut bucket_size: u64,
+        window_length: u64,
+        window_time: Duration,
+        bucket_size: u64,
     ) -> LimiterOptions {
-        let rate = window_length.min(bucket_size) as f64;
-        let tw: f64 = window_time.as_nanos() as f64;
-        let init_speed = (rate / tw) * 1_000_000.0;
-
-        let mut new_speed = init_speed;
-        let mut new_wlen = window_length;
-        let mut new_wtime = window_time;
-        let mut new_bsize = bucket_size;
-
-        // While the difference between the intented speed (init_speed) and the reduced one (new_speed) is under the threshold
-        //    Each iteration, divide all the options by 2, and recompute the speed (in order to check if it's not altered)
-        //    Because we want the values BEFORE the speed is above the threshold, assign the new values on start of the new iter only
-        while ((new_speed / init_speed) - 1.0).abs() < ACCEPTABLE_SPEED_DIFF {
-            // Values from past iter, we know they're under the threshold
-            window_length = new_wlen;
-            window_time = new_wtime;
-            bucket_size = new_bsize;
-
-            // If values aren't dividable by 2
-            if (new_wlen == 1) || (new_bsize == 1) || (new_wtime.as_nanos() == 1) {
-                break;
-            }
-
-            // Reduce the options
-            new_wlen /= 2;
-            new_wtime /= 2;
-            new_bsize /= 2;
-
-            // Recompute the new speed
-            let rate = new_wlen.min(new_bsize) as f64;
-            let tw: f64 = new_wtime.as_nanos() as f64;
-            new_speed = (rate / tw) * 1_000_000.0;
-        }
-
         LimiterOptions {
             window_length,
             window_time,
             bucket_size,
         }
+    }
+}
+
+impl LimiterOptions {
+    pub fn intersect(&self, _other: &LimiterOptions) -> LimiterOptions {
+        // TODO    Implement this intersection
+        todo!()        
     }
 }
 
@@ -108,19 +79,22 @@ where
         Limiter {
             stream,
             // We start at the beginning of last time window
-            last_read_check: if let Some(LimiterOptions { window_time, .. }) = read_opt {
-                Some(std::time::Instant::now().checked_sub(window_time).unwrap())
+            last_read_check: if read_opt.is_some() {
+                Some(std::time::Instant::now())
             } else {
                 None
             },
-            last_write_check: if let Some(LimiterOptions { window_time, .. }) = write_opt {
-                Some(std::time::Instant::now().checked_sub(window_time).unwrap())
+            last_write_check: if write_opt.is_some() {
+                Some(std::time::Instant::now())
             } else {
                 None
             },
+            additionnal_tokens: (
+                if let Some(ref ro) = read_opt { ro.window_length } else { 0 },
+                if let Some(ref wo) = write_opt { wo.window_length } else { 0 },
+            ),
             read_opt,
             write_opt,
-            additionnal_tokens: (0, 0),
         }
     }
 
@@ -148,11 +122,12 @@ where
         (read_cap, write_cap)
     }
 
-    fn tokens_available(&self) -> (Option<u64>, Option<u64>) {
+    fn tokens_available(&mut self) -> (Option<u64>, Option<u64>) {
         let read_tokens = if let Some(LimiterOptions {
             window_length,
             window_time,
             bucket_size,
+            ..
         }) = self.read_opt
         {
             let lrc = match u64::try_from(self.last_read_check.unwrap().elapsed().as_nanos()) {
@@ -160,11 +135,11 @@ where
                 // Will cap the last_read_check at a duration of about 584 years
                 Err(_) => u64::MAX,
             };
+            let window_time = u64::try_from(window_time.as_nanos())
+                .expect("Window time nanos > u64::MAX");
             Some(
                 std::cmp::min(
-                    (lrc / u64::try_from(window_time.as_nanos())
-                        .expect("Window time nanos > u64::MAX"))
-                    .saturating_mul(window_length),
+                    lrc.saturating_mul(window_length) / window_time,
                     bucket_size,
                 )
                 .saturating_add(self.additionnal_tokens.0),
@@ -176,6 +151,7 @@ where
             window_length,
             window_time,
             bucket_size,
+            ..
         }) = self.write_opt
         {
             let lwc = match u64::try_from(self.last_write_check.unwrap().elapsed().as_nanos()) {
@@ -183,11 +159,11 @@ where
                 // Will cap the last_read_check at a duration of about 584 years
                 Err(_) => u64::MAX,
             };
+            let window_time = u64::try_from(window_time.as_nanos())
+                .expect("Window time nanos > u64::MAX");
             Some(
                 std::cmp::min(
-                    (lwc / u64::try_from(window_time.as_nanos())
-                        .expect("Window time nanos > u64::MAX"))
-                    .saturating_mul(window_length),
+                    lwc.saturating_mul(window_length) / window_time,
                     bucket_size,
                 )
                 .saturating_add(self.additionnal_tokens.1),
@@ -195,6 +171,7 @@ where
         } else {
             None
         };
+        self.additionnal_tokens = (0, 0);
         (read_tokens, write_tokens)
     }
 
@@ -221,6 +198,8 @@ where
             return self.stream.read(buf);
         };
         let LimiterOptions { window_time, .. } = self.read_opt.as_ref().unwrap();
+        let tsleep = *window_time / (TryInto::<u32>::try_into(readlimit).unwrap());
+        debug_assert_ne!(tsleep.as_nanos(), 0);
         while buf_left > 0 {
             let nb_bytes_readable = self.tokens_available().0.unwrap().min(buf_left);
             if nb_bytes_readable < readlimit.min(buf_left) {
@@ -229,7 +208,7 @@ where
                 } else {
                     Duration::ZERO
                 };
-                std::thread::sleep(window_time.saturating_sub(elapsed));
+                std::thread::sleep(tsleep.saturating_sub(elapsed));
                 debug_assert!(self.tokens_available().0.unwrap() > 0);
                 continue;
             }
@@ -272,6 +251,8 @@ where
             return self.stream.write(buf);
         };
         let LimiterOptions { window_time, .. } = self.write_opt.as_ref().unwrap();
+        let tsleep = *window_time / (TryInto::<u32>::try_into(writelimit).unwrap());
+        debug_assert_ne!(tsleep.as_nanos(), 0);
         while buf_left > 0 {
             let nb_bytes_writable = self.tokens_available().1.unwrap().min(buf_left);
             if nb_bytes_writable < writelimit.min(buf_left) {
@@ -280,7 +261,7 @@ where
                 } else {
                     Duration::ZERO
                 };
-                std::thread::sleep(window_time.saturating_sub(elapsed));
+                std::thread::sleep(tsleep.saturating_sub(elapsed));
                 debug_assert!(self.tokens_available().1.unwrap() > 0);
                 continue;
             }

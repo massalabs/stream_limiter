@@ -1,6 +1,7 @@
 mod utils;
 
 mod tests {
+
     use crate::utils::paramtests::start_parametric_test;
     use sha2::Digest;
     use std::{
@@ -12,6 +13,26 @@ mod tests {
     const INSTANT_IO_EPS: u128 = 1_500_000;
     const DATALEN_DIVIDER: usize = 5;
 
+    fn assert_rate_limited(idx: &'static str, opts: &Option<LimiterOptions>, datalen: usize, elapsed: Duration) {
+        if let Some(opts) = opts {
+            let rate = opts.window_length.min(opts.bucket_size);
+            println!("{idx}| {:?} at rate {:?}", datalen, rate);
+            if (datalen as u64).saturating_sub(opts.window_length) > rate {
+                assert!(
+                    elapsed.as_nanos() > opts.window_time.as_nanos(),
+                    "{idx}| {:?} <= {:?}", elapsed, opts.window_time
+                );
+            } else {
+                assert!(
+                    elapsed.as_nanos() <= opts.window_time.as_nanos(),
+                    "{idx}| {:?} > {:?}", elapsed, opts.window_time
+                );
+            }
+        } else {
+            assert!(elapsed.as_nanos() < INSTANT_IO_EPS, "{idx}| {:?} (instant operation)", elapsed);
+        }
+    }
+    
     fn get_data_hash(data: &Vec<u8>) -> [u8; 32] {
         let mut hasher = sha2::Sha256::new();
         hasher.update(data);
@@ -50,17 +71,7 @@ mod tests {
             let nwrite = limiter.write(&buf).unwrap();
             let elapsed = now.elapsed();
             assert_eq!(nwrite, datalen);
-            if let Some(ref opts) = wopts {
-                let rate = opts.window_length.min(opts.bucket_size);
-                if (datalen as u64) > rate {
-                    assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
-                } else {
-                    assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
-                }
-            } else {
-                assert!(elapsed.as_nanos() < INSTANT_IO_EPS);
-            }
-
+            assert_rate_limited("BW", &wopts, datalen, elapsed);
             assert_eq!(get_data_hash(limiter.stream.get_ref()), data_checksum);
 
             let read_buf = limiter.stream.into_inner();
@@ -70,17 +81,7 @@ mod tests {
             let nread = limiter.read(buf.as_mut_slice()).unwrap();
             let elapsed = now.elapsed();
             assert_eq!(nread, datalen);
-            if let Some(ref opts) = ropts {
-                let rate = opts.window_length.min(opts.bucket_size);
-                if datalen as u64 > rate {
-                    assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
-                } else {
-                    assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
-                }
-            } else {
-                assert!(elapsed.as_nanos() < INSTANT_IO_EPS);
-            }
-
+            assert_rate_limited("BR", &ropts, datalen, elapsed);
             assert_eq!(get_data_hash(&buf), data_checksum);
             assert_eq!(&data, &buf);
         }
@@ -101,6 +102,25 @@ mod tests {
             let wopts_listener: Option<LimiterOptions> = get_random_options(&mut rng, datalen);
             let ropts_connector = get_random_options(&mut rng, datalen);
             let ropts_listener = get_random_options(&mut rng, datalen);
+
+            // Get the LimiterOptions config such as if:
+            //    - The writer W has a config CW
+            //    - The listener R has a config CL
+            //    - The speed for read/write operations will be limited by Cmin = min(CW, CL)
+            let limiting_opts_1c = match (&wopts_connector, &ropts_listener) {
+                (Some(wopts), Some(ropts)) => Some(wopts.intersect(ropts)),
+                (None, Some(opts)) | (Some(opts), None) => Some(opts.clone()),
+                (None, None) => None,
+            };
+            let limiting_opts_1l = limiting_opts_1c.clone();
+
+            let limiting_opts_2c = match (&ropts_connector, &wopts_listener) {
+                (Some(ropts), Some(wopts)) => Some(wopts.intersect(ropts)),
+                (None, Some(opts)) | (Some(opts), None) => Some(opts.clone()),
+                (None, None) => None,
+            };
+            let limiting_opts_2l = limiting_opts_2c.clone();
+            
             let data: Vec<u8> = (0..datalen).map(|_| rng.gen::<u8>()).collect();
             let data_c = data.clone();
             let datahash = get_data_hash(&data);
@@ -123,14 +143,7 @@ mod tests {
                 let now = std::time::Instant::now();
                 limiter.write_all(&data_c).unwrap();
                 let elapsed = now.elapsed();
-                if let Some(ref opts) = wopts_connector {
-                    let rate = opts.window_length.min(opts.bucket_size);
-                    if datalen as u64 > rate {
-                        assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
-                    } else {
-                        assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
-                    }
-                }
+                assert_rate_limited("TWC", &limiting_opts_1c, datalen, elapsed);
 
                 let mut limiter = Limiter::new(
                     limiter.stream,
@@ -143,14 +156,7 @@ mod tests {
                 limiter.read_exact(&mut buf).unwrap();
                 let elapsed = now.elapsed();
                 assert_eq!(get_data_hash(&buf), datahash);
-                if let Some(ref opts) = ropts_connector {
-                    let rate = opts.window_length.min(opts.bucket_size);
-                    if datalen as u64 > rate {
-                        assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
-                    } else {
-                        assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
-                    }
-                }
+                assert_rate_limited("TRC", &limiting_opts_2c, datalen, elapsed);
             });
             std::thread::sleep(Duration::from_millis(50));
 
@@ -166,28 +172,14 @@ mod tests {
                 limiter.read_exact(&mut buf).unwrap();
                 let elapsed = now.elapsed();
                 assert_eq!(get_data_hash(&buf), datahash);
-                if let Some(ref opts) = ropts_listener {
-                    let rate = opts.window_length.min(opts.bucket_size);
-                    if datalen as u64 > rate {
-                        assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
-                    } else {
-                        assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
-                    }
-                }
+                assert_rate_limited("TRL", &limiting_opts_1l, datalen, elapsed);
 
                 let mut limiter =
                     Limiter::new(limiter.stream, ropts_listener, wopts_listener.clone());
                 let now = std::time::Instant::now();
                 limiter.write_all(&data).unwrap();
                 let elapsed = now.elapsed();
-                if let Some(opts) = wopts_listener {
-                    let rate = opts.window_length.min(opts.bucket_size);
-                    if datalen as u64 > rate {
-                        assert!(elapsed.as_nanos() > opts.window_time.as_nanos());
-                    } else {
-                        assert!(elapsed.as_nanos() <= opts.window_time.as_nanos());
-                    }
-                }
+                assert_rate_limited("TWL", &limiting_opts_2l, datalen, elapsed);
                 break;
             }
             assert!(connector.join().is_ok());

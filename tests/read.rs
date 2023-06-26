@@ -64,7 +64,7 @@ mod tests {
         let now = std::time::Instant::now();
         let mut buf = [0u8; 10];
         limiter.read(&mut buf).unwrap();
-        assert_eq!(now.elapsed().as_secs(), 0);
+        assert!(now.elapsed().as_millis() < 1, "{:?}", now.elapsed());
     }
 
     #[test]
@@ -124,12 +124,12 @@ mod tests {
     }
 
     #[test]
-    fn tenko_limit() {
+    fn oneko_limit() {
         let file = File::open("tests/resources/big.txt").unwrap();
         let mut limiter = Limiter::new(
             file,
             Some(LimiterOptions::new(
-                10 * 1024,
+                1 * 1024,
                 Duration::from_secs(1),
                 12 * 1024,
             )),
@@ -139,7 +139,7 @@ mod tests {
         let now = std::time::Instant::now();
         let mut buf = [0u8; 11 * 1024];
         limiter.read(&mut buf).unwrap();
-        assert_eq!(now.elapsed().as_secs(), 1);
+        assert_eq!(now.elapsed().as_secs(), 10, "{:?}", now.elapsed());
         assert_checksum(&buf, &FILE_BIG);
     }
 
@@ -149,38 +149,50 @@ mod tests {
         let mut limiter = Limiter::new(
             file,
             Some(LimiterOptions::new(
-                11,
-                Duration::from_nanos((1000 * 1000 * 1000) / 1024),
-                12 * 1024,
+                10,
+                Duration::from_secs(1) / 1024,
+                12,
             )),
             None,
         );
         assert!(limiter.limits().0);
+
         let now = std::time::Instant::now();
         let mut res_buffer = Vec::new();
+
         let mut buf = [0u8; 8];
         limiter.read(&mut buf).unwrap();
         res_buffer.extend_from_slice(&buf);
+
         let mut buf = [0u8; (11 * 1024) - 8];
         limiter.read(&mut buf).unwrap();
         res_buffer.extend_from_slice(&buf);
-        assert_eq!(now.elapsed().as_secs(), 1);
+
+        assert_eq!(now.elapsed().as_secs(), 1, "{:?}", now.elapsed());
         assert_checksum(&res_buffer, &FILE_BIG);
     }
 
     #[test]
     fn test_bucket_full() {
-        let file = File::open("tests/resources/test.txt").unwrap();
+        let file = File::open("tests/resources/big.txt").unwrap();
         let mut limiter = Limiter::new(
             file,
-            Some(LimiterOptions::new(1024, Duration::from_secs(1), 10)),
+            Some(LimiterOptions::new(100, Duration::from_secs(1), 10)),
             None,
         );
         assert!(limiter.limits().0);
         let now = std::time::Instant::now();
-        let mut buf = [0u8; 15];
+
+        // 100 bytes with read peak
+        let mut buf = [0u8; 100];
         limiter.read(&mut buf).unwrap();
-        assert_eq!(now.elapsed().as_secs(), 1);
+
+        // Fill the bucket (will only read 10 bytes after that)
+        std::thread::sleep(Duration::from_secs(1));
+        // 10 bytes from bucket + 100 bytes / sec -> 1s to read 110 bytes
+        let mut buf = [0u8; 110];
+        limiter.read(&mut buf).unwrap();
+        assert_eq!(now.elapsed().as_secs(), 2, "{:?}", now.elapsed());
     }
 
     // TODO    Add test changing the bucket size between 2 reads

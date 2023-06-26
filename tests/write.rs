@@ -96,13 +96,13 @@ mod tests {
     }
 
     #[test]
-    fn tenko_limit() {
+    fn oneko_limit() {
         let outbuf = std::io::Cursor::new(vec![]);
         let mut limiter = Limiter::new(
             outbuf,
             None,
             Some(LimiterOptions::new(
-                10 * 1024,
+                1 * 1024,
                 Duration::from_secs(1),
                 12 * 1024,
             )),
@@ -111,7 +111,7 @@ mod tests {
         let now = std::time::Instant::now();
         let buf = [88u8; 11 * 1024];
         limiter.write(&buf).unwrap();
-        assert_eq!(now.elapsed().as_secs(), 1);
+        assert_eq!(now.elapsed().as_secs(), 10, "{:?}", now.elapsed());
         assert_checksum_samedata::<11264>(&limiter.stream.into_inner(), 88);
     }
 
@@ -122,18 +122,21 @@ mod tests {
             outbuf,
             None,
             Some(LimiterOptions::new(
-                11,
-                Duration::from_nanos((1000 * 1000 * 1000) / 1024),
-                12 * 1024,
+                10,
+                Duration::from_secs(1) / 1024,
+                12,
             )),
         );
         assert!(limiter.limits().1);
+
         let now = std::time::Instant::now();
         let buf = [66u8; 8];
         limiter.write(&buf).unwrap();
+
         let buf = [66u8; (11 * 1024) - 8];
         limiter.write(&buf).unwrap();
-        assert_eq!(now.elapsed().as_secs(), 1);
+
+        assert_eq!(now.elapsed().as_secs(), 1, "{:?}", now.elapsed());
         assert_checksum_samedata::<11264>(&limiter.stream.into_inner(), 66);
     }
 
@@ -143,13 +146,21 @@ mod tests {
         let mut limiter = Limiter::new(
             outbuf,
             None,
-            Some(LimiterOptions::new(1024, Duration::from_secs(1), 10)),
+            Some(LimiterOptions::new(100, Duration::from_secs(1), 10)),
         );
         assert!(limiter.limits().1);
         let now = std::time::Instant::now();
-        let buf = [128u8; 15];
+
+        // 100 bytes with write peak
+        let buf = [128u8; 100];
         limiter.write(&buf).unwrap();
-        assert_eq!(now.elapsed().as_secs(), 1);
-        assert_checksum_samedata::<15>(&limiter.stream.into_inner(), 128);
+
+        std::thread::sleep(Duration::from_secs(1));
+        // 10 bytes from bucket + 100 bytes / sec -> 1s to write 110 bytes
+        let mut buf = [128u8; 110];
+        limiter.write(&mut buf).unwrap();
+
+        assert_eq!(now.elapsed().as_secs(), 2, "{:?}", now.elapsed());
+        assert_checksum_samedata::<210>(&limiter.stream.into_inner(), 128);
     }
 }
