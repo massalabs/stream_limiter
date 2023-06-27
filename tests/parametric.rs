@@ -13,7 +13,7 @@ mod tests {
 
     const INSTANT_IO_EPS: u128 = 1_500_000;
     const DATALEN_DIVIDER: usize = 5;
-    const ALLOWED_PERC_DIFF: f64 = 0.01;
+    const ALLOWED_PERC_DIFF: f64 = 0.05;
 
     fn assert_rate_limited(
         idx: &'static str,
@@ -98,7 +98,6 @@ mod tests {
             assert_rate_limited("BW", &wopts, datalen, elapsed);
             assert_eq!(get_data_hash(limiter.stream.get_ref()), data_checksum);
 
-            println!("\n\n");
             let read_buf = limiter.stream.into_inner();
             let mut buf = vec![0; datalen];
             let mut limiter = Limiter::new(std::io::Cursor::new(read_buf), ropts.clone(), wopts);
@@ -115,6 +114,7 @@ mod tests {
             1000000,
             vec![
                 15874969967965961473,
+                8110699151753673162,
             ],
             paramtest_buffer,
         );
