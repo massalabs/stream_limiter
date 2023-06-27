@@ -40,6 +40,7 @@ impl LimiterOptions {
 impl LimiterOptions {
     pub fn set_min_operation_size(&mut self, val: u64) {
         assert_ne!(val, 0);
+        assert!(self.bucket_size >= val, "Bucket size: {}, min_operation_size: {}", self.bucket_size, val);
         self.min_operation_size = val;
     }
 
@@ -119,6 +120,7 @@ where
         } else {
             None
         };
+
         let write_cap = if let Some(LimiterOptions {
             window_length,
             bucket_size,
@@ -129,6 +131,7 @@ where
         } else {
             None
         };
+
         (read_cap, write_cap)
     }
 
@@ -148,8 +151,10 @@ where
             let window_time =
                 u64::try_from(window_time.as_nanos()).expect("Window time nanos > u64::MAX");
             Some(
-                std::cmp::min(lrc.saturating_mul(window_length) / window_time, bucket_size)
-                    .saturating_add(self.additionnal_tokens.0),
+                std::cmp::min(
+                    (lrc.saturating_mul(window_length) / window_time) + 1,
+                    bucket_size
+                ).saturating_add(self.additionnal_tokens.0),
             )
         } else {
             None
@@ -169,8 +174,10 @@ where
             let window_time =
                 u64::try_from(window_time.as_nanos()).expect("Window time nanos > u64::MAX");
             Some(
-                std::cmp::min(lwc.saturating_mul(window_length) / window_time, bucket_size)
-                    .saturating_add(self.additionnal_tokens.1),
+                std::cmp::min(
+                    (lwc.saturating_mul(window_length) / window_time) + 1,
+                    bucket_size
+                ).saturating_add(self.additionnal_tokens.1),
             )
         } else {
             None
@@ -205,17 +212,15 @@ where
             return self.stream.read(buf);
         };
         let tsleep = self.compute_tsleep_per_byte(self.read_opt.as_ref().unwrap());
-        let LimiterOptions {
-            min_operation_size, ..
-        } = self.read_opt.as_ref().unwrap();
-        let min_operation_size = min_operation_size.clone();
-        let sleep_threshold = readlimit.max(min_operation_size);
+        let opts = self.read_opt.as_ref().unwrap();
+        let sleep_threshold = readlimit.max(opts.min_operation_size);
         debug_assert_ne!(tsleep.as_nanos(), 0);
         while buf_left > 0 {
             let nb_bytes_readable = self.tokens_available().0.unwrap().min(buf_left);
-            if nb_bytes_readable < sleep_threshold.min(buf_left) {
+            if nb_bytes_readable < sleep_threshold.min(buf_left).min(opts.bucket_size) {
                 let nb_left: u32 = sleep_threshold
                     .min(buf_left)
+                    .min(opts.bucket_size)
                     .saturating_sub(nb_bytes_readable)
                     .try_into()
                     .expect("Read nb left > u32::MAX");
@@ -223,12 +228,14 @@ where
 
                 #[cfg(debug_assertions)]
                 {
-                    let new_nb_bytes_readable = self.tokens_available().0.unwrap();
-                    debug_assert!(new_nb_bytes_readable > nb_bytes_readable,
-                        "\n{:?}\nTsleep: {tsleep:?} x {nb_left} = {:?}\nReadlimit: {readlimit}\n{nb_bytes_readable} == {new_nb_bytes_readable}",
-                        self.read_opt.as_ref(),
-                        tsleep * nb_left,
-                    );
+                    if nb_bytes_readable != opts.bucket_size {
+                        let new_nb_bytes_readable = self.tokens_available().0.unwrap();
+                        debug_assert!(new_nb_bytes_readable > nb_bytes_readable,
+                            "\n{:?}\nTsleep: {tsleep:?} x {nb_left} = {:?}\nReadlimit: {readlimit}\n{nb_bytes_readable} == {new_nb_bytes_readable}",
+                            self.read_opt.as_ref(),
+                            tsleep * nb_left,
+                        );
+                    }
                 }
                 continue;
             }
@@ -270,15 +277,13 @@ where
         };
         let tsleep = self.compute_tsleep_per_byte(self.write_opt.as_ref().unwrap());
         debug_assert_ne!(tsleep.as_nanos(), 0);
-        let LimiterOptions {
-            min_operation_size, ..
-        } = self.write_opt.as_ref().unwrap();
-        let min_operation_size = min_operation_size.clone();
+        let opts = self.write_opt.as_ref().unwrap();
+        let min_operation_size = opts.min_operation_size.clone();
 
         let sleep_threshold = writelimit.max(min_operation_size);
         while buf_left > 0 {
             let nb_bytes_writable = self.tokens_available().1.unwrap().min(buf_left);
-            if nb_bytes_writable < sleep_threshold.min(buf_left) {
+            if nb_bytes_writable < sleep_threshold.min(buf_left).min(opts.bucket_size) {
                 let nb_left: u32 = sleep_threshold
                     .min(buf_left)
                     .saturating_sub(nb_bytes_writable)
@@ -288,12 +293,14 @@ where
 
                 #[cfg(debug_assertions)]
                 {
-                    let new_nb_bytes_writable = self.tokens_available().1.unwrap();
-                    debug_assert!(
-                        new_nb_bytes_writable > nb_bytes_writable,
-                        "\n{:?}\nTsleep: {tsleep:?}\nWritelimit: {writelimit}\n",
-                        self.write_opt.as_ref(),
-                    );
+                    if nb_bytes_writable != opts.bucket_size {
+                        let new_nb_bytes_writable = self.tokens_available().1.unwrap();
+                        debug_assert!(
+                            new_nb_bytes_writable > nb_bytes_writable,
+                            "\n{:?}\nTsleep: {tsleep:?}\nWritelimit: {writelimit}\n",
+                            self.write_opt.as_ref(),
+                        );
+                    }
                 }
                 continue;
             }

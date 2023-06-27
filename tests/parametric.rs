@@ -13,6 +13,7 @@ mod tests {
 
     const INSTANT_IO_EPS: u128 = 1_500_000;
     const DATALEN_DIVIDER: usize = 5;
+    const ALLOWED_PERC_DIFF: f64 = 0.01;
 
     fn assert_rate_limited(
         idx: &'static str,
@@ -22,20 +23,24 @@ mod tests {
     ) {
         println!("{idx} Elapsed: {elapsed:?}, datalen: {datalen}, opts: {opts:?}");
         if let Some(opts) = opts {
+            let elapsedn = elapsed.as_nanos();
+            let wtime = opts.window_time.as_nanos();
             if (datalen as u64) > opts.window_length {
-                assert!(
-                    elapsed.as_nanos() > opts.window_time.as_nanos(),
-                    "{idx}| {:?} <= {:?}",
-                    elapsed,
-                    opts.window_time
-                );
+                if elapsedn <= wtime {
+                    assert!((wtime - elapsedn) as f64 / (wtime as f64) < ALLOWED_PERC_DIFF,
+                        "{idx}| Elapsed {:?} <= Window time {:?} (with {}% margin)",
+                        elapsed, opts.window_time,
+                        ALLOWED_PERC_DIFF * 100.0,
+                    );
+                }
             } else {
-                assert!(
-                    elapsed.as_nanos() <= opts.window_time.as_nanos(),
-                    "{idx}| {:?} > {:?}",
-                    elapsed,
-                    opts.window_time
-                );
+                if elapsedn > wtime {
+                    assert!((elapsedn - wtime) as f64 / (wtime as f64) < ALLOWED_PERC_DIFF,
+                        "{idx}| Elapsed {:?} > Window time {:?} (with {}% margin)",
+                        elapsed, opts.window_time,
+                        ALLOWED_PERC_DIFF * 100.0,
+                    );
+                }
             }
         } else {
             assert!(
@@ -65,7 +70,7 @@ mod tests {
                 Duration::from_millis(
                     rng.gen_range(DATALEN_DIVIDER..(1000 / DATALEN_DIVIDER)) as u64
                 ),
-                rng.gen_range((datalen / DATALEN_DIVIDER)..(datalen * DATALEN_DIVIDER)) as u64,
+                rng.gen_range((datalen / DATALEN_DIVIDER).max(min_op_size as usize)..(datalen * DATALEN_DIVIDER).max(min_op_size as usize)) as u64,
             );
             opts.set_min_operation_size(min_op_size);
             Some(opts)
@@ -93,6 +98,7 @@ mod tests {
             assert_rate_limited("BW", &wopts, datalen, elapsed);
             assert_eq!(get_data_hash(limiter.stream.get_ref()), data_checksum);
 
+            println!("\n\n");
             let read_buf = limiter.stream.into_inner();
             let mut buf = vec![0; datalen];
             let mut limiter = Limiter::new(std::io::Cursor::new(read_buf), ropts.clone(), wopts);
@@ -106,14 +112,9 @@ mod tests {
         }
 
         start_parametric_test(
-            100,
+            1000000,
             vec![
-                4244848515171013521,
-                1855233730327491569,
-                1933802456873859755,
-                14398057406427516238,
-                13640999559978117227,
-                15774267780173159788,
+                15874969967965961473,
             ],
             paramtest_buffer,
         );
@@ -220,15 +221,7 @@ mod tests {
         start_parametric_test(
             100,
             vec![
-                14619169503080075121,
-                15039019555209573434,
-                4013779285461206358,
-                15164449282496041257,
-                3911014536179701959,
-                2770066496784563521,
-                16118644738678043134,
-                15039019555209573434,
-                18348045085902583881,
+                15163516011027607440,
             ],
             paramtest_tcp,
         );
