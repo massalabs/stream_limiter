@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use hex_literal::hex;
 use sha2::Digest;
 

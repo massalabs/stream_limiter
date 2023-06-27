@@ -8,8 +8,8 @@ mod tests {
 
     #[test]
     fn test_limit_read() {
-        const WINDOW_RATE : usize = 9;
-        const BUFFER_SIZE: usize = 2*WINDOW_RATE;
+        const WINDOW_RATE: usize = 9;
+        const BUFFER_SIZE: usize = 2 * WINDOW_RATE;
         let listener = TcpListener::bind("127.0.0.1:34254").unwrap();
         std::thread::spawn(|| {
             println!("W] Connecting...");
@@ -26,7 +26,8 @@ mod tests {
                 Some(LimiterOptions::new(
                     WINDOW_RATE as u64,
                     Duration::from_secs(1),
-                    (WINDOW_RATE + 1) as u64)),
+                    (WINDOW_RATE + 1) as u64,
+                )),
                 None,
             );
             println!("R] Reading with limitation");
@@ -42,8 +43,8 @@ mod tests {
 
     #[test]
     fn test_limit_write() {
-        const WINDOW_RATE : usize = 9;
-        const BUFFER_SIZE: usize = 2*WINDOW_RATE;
+        const WINDOW_RATE: usize = 9;
+        const BUFFER_SIZE: usize = 2 * WINDOW_RATE;
         let listener = TcpListener::bind("127.0.0.1:34255").unwrap();
         std::thread::spawn(|| {
             println!("W] Connecting...");
@@ -52,7 +53,10 @@ mod tests {
                 stream,
                 None,
                 Some(LimiterOptions::new(
-                    WINDOW_RATE as u64, Duration::from_secs(1), (WINDOW_RATE + 1) as u64)),
+                    WINDOW_RATE as u64,
+                    Duration::from_secs(1),
+                    (WINDOW_RATE + 1) as u64,
+                )),
             );
             println!("W] Writing ...");
             limiter.write(&[42u8; BUFFER_SIZE]).unwrap();
@@ -76,8 +80,8 @@ mod tests {
 
     #[test]
     fn test_limit_both() {
-        const WINDOW_RATE : usize = 9;
-        const BUFFER_SIZE: usize = 2*WINDOW_RATE;
+        const WINDOW_RATE: usize = 9;
+        const BUFFER_SIZE: usize = 2 * WINDOW_RATE;
         let listener = TcpListener::bind("127.0.0.1:34256").unwrap();
         std::thread::spawn(|| {
             println!("W] Connecting...");
@@ -88,7 +92,8 @@ mod tests {
                 Some(LimiterOptions::new(
                     WINDOW_RATE as u64,
                     Duration::from_secs(1),
-                    (WINDOW_RATE + 1) as u64)),
+                    (WINDOW_RATE + 1) as u64,
+                )),
             );
             println!("W] Writing ...");
             limiter.write_all(&[42u8; BUFFER_SIZE]).unwrap();
@@ -105,7 +110,8 @@ mod tests {
                 Some(LimiterOptions::new(
                     WINDOW_RATE as u64,
                     Duration::from_secs(1),
-                    (WINDOW_RATE + 1) as u64)),
+                    (WINDOW_RATE + 1) as u64,
+                )),
                 None,
             );
             limiter.read_exact(&mut buffer).unwrap();
@@ -119,7 +125,7 @@ mod tests {
 
     #[test]
     fn test_peak_both() {
-        const WINDOW_RATE : usize = 9;
+        const WINDOW_RATE: usize = 9;
         const BUFFER_SIZE: usize = WINDOW_RATE;
         let listener = TcpListener::bind("127.0.0.1:34257").unwrap();
         std::thread::spawn(|| {
@@ -130,8 +136,9 @@ mod tests {
                 None,
                 Some(LimiterOptions::new(
                     WINDOW_RATE as u64,
-                    Duration::from_secs(1), 
-                    (WINDOW_RATE + 1) as u64)),
+                    Duration::from_secs(1),
+                    (WINDOW_RATE + 1) as u64,
+                )),
             );
             println!("W] Writing ...");
             limiter.write_all(&[42u8; BUFFER_SIZE]).unwrap();
@@ -148,7 +155,8 @@ mod tests {
                 Some(LimiterOptions::new(
                     WINDOW_RATE as u64,
                     Duration::from_secs(1),
-                    (WINDOW_RATE + 1) as u64)),
+                    (WINDOW_RATE + 1) as u64,
+                )),
                 None,
             );
             limiter.read_exact(&mut buffer).unwrap();

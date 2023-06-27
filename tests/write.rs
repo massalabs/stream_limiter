@@ -121,11 +121,7 @@ mod tests {
         let mut limiter = Limiter::new(
             outbuf,
             None,
-            Some(LimiterOptions::new(
-                10,
-                Duration::from_secs(1) / 1024,
-                12,
-            )),
+            Some(LimiterOptions::new(10, Duration::from_secs(1) / 1024, 12)),
         );
         assert!(limiter.limits().1);
 

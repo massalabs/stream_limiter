@@ -148,11 +148,7 @@ mod tests {
         let file = File::open("tests/resources/big.txt").unwrap();
         let mut limiter = Limiter::new(
             file,
-            Some(LimiterOptions::new(
-                10,
-                Duration::from_secs(1) / 1024,
-                12,
-            )),
+            Some(LimiterOptions::new(10, Duration::from_secs(1) / 1024, 12)),
             None,
         );
         assert!(limiter.limits().0);
