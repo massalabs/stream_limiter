@@ -33,17 +33,15 @@ fn assert_rate_limited(
                     (wtime - elapsedn) as f64 / (wtime as f64) * 100.0,
                 );
             }
-        } else {
-            if elapsedn > wtime {
-                assert!(
-                    (elapsedn - wtime) as f64 / (wtime as f64) < ALLOWED_PERC_DIFF,
-                    "{idx}| Elapsed {:?} > Window time {:?} (with {}% margin, got {:.2}% diff)",
-                    elapsed,
-                    opts.window_time,
-                    ALLOWED_PERC_DIFF * 100.0,
-                    (elapsedn - wtime) as f64 / (wtime as f64) * 100.0,
-                );
-            }
+        } else if elapsedn > wtime {
+            assert!(
+                (elapsedn - wtime) as f64 / (wtime as f64) < ALLOWED_PERC_DIFF,
+                "{idx}| Elapsed {:?} > Window time {:?} (with {}% margin, got {:.2}% diff)",
+                elapsed,
+                opts.window_time,
+                ALLOWED_PERC_DIFF * 100.0,
+                (elapsedn - wtime) as f64 / (wtime as f64) * 100.0,
+            );
         }
     } else {
         assert!(

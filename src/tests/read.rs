@@ -99,11 +99,7 @@ fn oneko_limit() {
     let file = open_file("big.txt");
     let mut limiter = Limiter::new(
         file,
-        Some(LimiterOptions::new(
-            1 * 1024,
-            Duration::from_secs(1),
-            12 * 1024,
-        )),
+        Some(LimiterOptions::new(1024, Duration::from_secs(1), 12 * 1024)),
         None,
     );
     assert!(limiter.limits().0);

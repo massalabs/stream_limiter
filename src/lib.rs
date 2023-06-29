@@ -319,7 +319,7 @@ where
         let tsleep = self.compute_tsleep_per_byte(self.write_opt.as_ref().unwrap());
         debug_assert_ne!(tsleep.as_nanos(), 0);
         let opts = self.write_opt.as_ref().unwrap();
-        let min_operation_size = opts.min_operation_size.clone();
+        let min_operation_size = opts.min_operation_size;
 
         let sleep_threshold = writelimit.max(min_operation_size);
         while buf_left > 0 {

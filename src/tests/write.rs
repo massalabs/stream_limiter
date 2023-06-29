@@ -88,11 +88,7 @@ fn oneko_limit() {
     let mut limiter = Limiter::new(
         outbuf,
         None,
-        Some(LimiterOptions::new(
-            1 * 1024,
-            Duration::from_secs(1),
-            12 * 1024,
-        )),
+        Some(LimiterOptions::new(1024, Duration::from_secs(1), 12 * 1024)),
     );
     assert!(limiter.limits().1);
     let now = std::time::Instant::now();
