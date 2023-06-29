@@ -16,7 +16,7 @@
 //! ```
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
-use std::{debug_assert, debug_assert_ne};
+use std::debug_assert;
 
 #[cfg(test)]
 mod tests;
@@ -239,7 +239,6 @@ where
         let tsleep = self.compute_tsleep_per_byte(self.read_opt.as_ref().unwrap());
         let opts = self.read_opt.as_ref().unwrap();
         let sleep_threshold = readlimit.max(opts.min_operation_size);
-        debug_assert_ne!(tsleep.as_nanos(), 0);
         while buf_left > 0 {
             let nb_bytes_readable = self.tokens_available().0.unwrap().min(buf_left);
             if nb_bytes_readable < sleep_threshold.min(buf_left).min(opts.bucket_size) {
@@ -317,7 +316,6 @@ where
             }
         };
         let tsleep = self.compute_tsleep_per_byte(self.write_opt.as_ref().unwrap());
-        debug_assert_ne!(tsleep.as_nanos(), 0);
         let opts = self.write_opt.as_ref().unwrap();
         let min_operation_size = opts.min_operation_size;
 
