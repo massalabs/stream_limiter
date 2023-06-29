@@ -3,6 +3,7 @@ use std::time::Duration;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
+#[cfg(test)]
 #[allow(dead_code)]
 pub fn start_parametric_test<F>(nbiter: usize, regressions: Vec<u64>, function: F)
 where
