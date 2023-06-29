@@ -1,7 +1,7 @@
+use crate::{Limiter, LimiterOptions};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
-use crate::{Limiter, LimiterOptions};
 
 #[test]
 fn test_limit_read() {
@@ -128,11 +128,7 @@ fn test_no_limit() {
     std::thread::spawn(|| {
         println!("W] Connecting...");
         let stream = TcpStream::connect("127.0.0.1:34257").unwrap();
-        let mut limiter = Limiter::new(
-            stream,
-            None,
-            None,
-        );
+        let mut limiter = Limiter::new(stream, None, None);
         println!("W] Writing ...");
         limiter.write_all(&[42u8; BUFFER_SIZE]).unwrap();
         println!("W] OK");
@@ -143,11 +139,7 @@ fn test_no_limit() {
         println!("R] Reading with limitation");
         let mut buffer = [0; BUFFER_SIZE];
         let now = std::time::Instant::now();
-        let mut limiter = Limiter::new(
-            stream.unwrap(),
-            None,
-            None,
-        );
+        let mut limiter = Limiter::new(stream.unwrap(), None, None);
         limiter.read_exact(&mut buffer).unwrap();
 
         println!(

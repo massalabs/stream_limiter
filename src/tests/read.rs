@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::time::Duration;
 
-use super::utils::{assert_checksum, FILE_BIG, FILE_LITTLE, open_file};
+use super::utils::{assert_checksum, open_file, FILE_BIG, FILE_LITTLE};
 use crate::{Limiter, LimiterOptions};
 
 #[test]
@@ -52,11 +52,7 @@ fn two_byte_each_second() {
 #[test]
 fn read_instant() {
     let file = open_file("test.txt");
-    let mut limiter = Limiter::new(
-        file,
-        None,
-        None,
-    );
+    let mut limiter = Limiter::new(file, None, None);
     assert!(!limiter.limits().0);
     let now = std::time::Instant::now();
     let mut buf = [0u8; 10];

@@ -54,11 +54,7 @@ fn two_byte_each_second() {
 #[test]
 fn write_instant() {
     let outbuf = std::io::Cursor::new(vec![]);
-    let mut limiter = Limiter::new(
-        outbuf,
-        None,
-        None,
-    );
+    let mut limiter = Limiter::new(outbuf, None, None);
     assert!(!limiter.limits().1);
     let now = std::time::Instant::now();
     let buf = [33u8; 10];

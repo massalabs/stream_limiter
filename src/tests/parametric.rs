@@ -5,8 +5,8 @@ use std::{
     time::Duration,
 };
 
-use crate::{Limiter, LimiterOptions};
 use super::utils::paramtests::start_parametric_test;
+use crate::{Limiter, LimiterOptions};
 
 const INSTANT_IO_EPS: u128 = 1_500_000;
 const DATALEN_DIVIDER: usize = 5;
@@ -24,9 +24,11 @@ fn assert_rate_limited(
         let wtime = opts.window_time.as_nanos();
         if (datalen as u64) > opts.window_length {
             if elapsedn <= wtime {
-                assert!((wtime - elapsedn) as f64 / (wtime as f64) < ALLOWED_PERC_DIFF,
+                assert!(
+                    (wtime - elapsedn) as f64 / (wtime as f64) < ALLOWED_PERC_DIFF,
                     "{idx}| Elapsed {:?} <= Window time {:?} (with {}% margin, got {:.2}% diff)",
-                    elapsed, opts.window_time,
+                    elapsed,
+                    opts.window_time,
                     ALLOWED_PERC_DIFF * 100.0,
                     (wtime - elapsedn) as f64 / (wtime as f64) * 100.0,
                 );
@@ -68,9 +70,7 @@ fn get_random_options<R: rand::Rng>(
     } else {
         let mut opts = LimiterOptions::new(
             rng.gen_range((datalen / DATALEN_DIVIDER)..(datalen * DATALEN_DIVIDER)) as u64,
-            Duration::from_millis(
-                rng.gen_range(DATALEN_DIVIDER..(1000 / DATALEN_DIVIDER)) as u64
-            ),
+            Duration::from_millis(rng.gen_range(DATALEN_DIVIDER..(1000 / DATALEN_DIVIDER)) as u64),
             rng.gen_range(
                 (datalen / DATALEN_DIVIDER).max(min_op_size as usize)
                     ..(datalen * DATALEN_DIVIDER).max((2 * min_op_size) as usize),
