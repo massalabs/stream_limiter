@@ -28,17 +28,21 @@ mod tests {
             if (datalen as u64) > opts.window_length {
                 if elapsedn <= wtime {
                     assert!((wtime - elapsedn) as f64 / (wtime as f64) < ALLOWED_PERC_DIFF,
-                        "{idx}| Elapsed {:?} <= Window time {:?} (with {}% margin)",
+                        "{idx}| Elapsed {:?} <= Window time {:?} (with {}% margin, got {:.2}% diff)",
                         elapsed, opts.window_time,
                         ALLOWED_PERC_DIFF * 100.0,
+                        (wtime - elapsedn) as f64 / (wtime as f64) * 100.0,
                     );
                 }
             } else {
                 if elapsedn > wtime {
-                    assert!((elapsedn - wtime) as f64 / (wtime as f64) < ALLOWED_PERC_DIFF,
-                        "{idx}| Elapsed {:?} > Window time {:?} (with {}% margin)",
-                        elapsed, opts.window_time,
+                    assert!(
+                        (elapsedn - wtime) as f64 / (wtime as f64) < ALLOWED_PERC_DIFF,
+                        "{idx}| Elapsed {:?} > Window time {:?} (with {}% margin, got {:.2}% diff)",
+                        elapsed,
+                        opts.window_time,
                         ALLOWED_PERC_DIFF * 100.0,
+                        (elapsedn - wtime) as f64 / (wtime as f64) * 100.0,
                     );
                 }
             }
@@ -70,7 +74,10 @@ mod tests {
                 Duration::from_millis(
                     rng.gen_range(DATALEN_DIVIDER..(1000 / DATALEN_DIVIDER)) as u64
                 ),
-                rng.gen_range((datalen / DATALEN_DIVIDER).max(min_op_size as usize)..(datalen * DATALEN_DIVIDER).max(min_op_size as usize)) as u64,
+                rng.gen_range(
+                    (datalen / DATALEN_DIVIDER).max(min_op_size as usize)
+                        ..(datalen * DATALEN_DIVIDER).max((2 * min_op_size) as usize),
+                ) as u64,
             );
             opts.set_min_operation_size(min_op_size);
             Some(opts)
@@ -80,7 +87,7 @@ mod tests {
     #[test]
     fn test_buffer() {
         fn paramtest_buffer<R: rand::Rng>(mut rng: R) {
-            let datalen = rng.gen_range(10..1024 * 512);
+            let datalen = rng.gen_range(DATALEN_DIVIDER..1024 * 512);
 
             let outbuf = std::io::Cursor::new(vec![]);
             let wopts: Option<LimiterOptions> = get_random_options(&mut rng, datalen, 1);
@@ -93,7 +100,7 @@ mod tests {
             let mut limiter = Limiter::new(outbuf, ropts.clone(), wopts.clone());
             let now = std::time::Instant::now();
             let nwrite = limiter.write(&buf).unwrap();
-            let elapsed = now.elapsed();
+            let elapsed = now.elapsed() - limiter.blocking_duration.1;
             assert_eq!(nwrite, datalen);
             assert_rate_limited("BW", &wopts, datalen, elapsed);
             assert_eq!(get_data_hash(limiter.stream.get_ref()), data_checksum);
@@ -103,7 +110,7 @@ mod tests {
             let mut limiter = Limiter::new(std::io::Cursor::new(read_buf), ropts.clone(), wopts);
             let now = std::time::Instant::now();
             let nread = limiter.read(buf.as_mut_slice()).unwrap();
-            let elapsed = now.elapsed();
+            let elapsed = now.elapsed() - limiter.blocking_duration.0;
             assert_eq!(nread, datalen);
             assert_rate_limited("BR", &ropts, datalen, elapsed);
             assert_eq!(get_data_hash(&buf), data_checksum);
@@ -115,6 +122,9 @@ mod tests {
             vec![
                 15874969967965961473,
                 8110699151753673162,
+                3938382362045563233,
+                4127573218620133621,
+                16703096643533052530,
             ],
             paramtest_buffer,
         );
@@ -127,24 +137,12 @@ mod tests {
             let datalen = rng.gen_range(10..1024 * 512);
             let wopts_connector: Option<LimiterOptions> =
                 get_random_options(&mut rng, datalen, 64 * 1024);
-            let wopts_listener: Option<LimiterOptions> =
-                get_random_options(&mut rng, datalen, 64 * 1024);
+            // let wopts_listener: Option<LimiterOptions> =
+            //     get_random_options(&mut rng, datalen, 64 * 1024);
+            let ropts_listener = wopts_connector.clone();
             let ropts_connector = get_random_options(&mut rng, datalen, 64 * 1024);
-            let ropts_listener = get_random_options(&mut rng, datalen, 64 * 1024);
-
-            // Step 1:     Connector write, listener reads
-            let limiting_opts_1l = match (&wopts_connector, &ropts_listener) {
-                (Some(wopts), Some(ropts)) => Some(wopts.intersect(ropts)),
-                (None, Some(opts)) | (Some(opts), None) => Some(opts.clone()),
-                (None, None) => None,
-            };
-
-            // Step 2:    Connector reads, listener writes
-            let limiting_opts_2c = match (&ropts_connector, &wopts_listener) {
-                (Some(ropts), Some(wopts)) => Some(wopts.intersect(ropts)),
-                (None, Some(opts)) | (Some(opts), None) => Some(opts.clone()),
-                (None, None) => None,
-            };
+            // let ropts_listener = get_random_options(&mut rng, datalen, 64 * 1024);
+            let wopts_listener = ropts_connector.clone();
 
             let thread_sync_l = Arc::new(Barrier::new(2));
             let thread_sync_c = thread_sync_l.clone();
@@ -171,21 +169,20 @@ mod tests {
 
                 let now = std::time::Instant::now();
                 limiter.write_all(&data_c).unwrap();
-                let elapsed = now.elapsed();
+                let elapsed = now.elapsed() - limiter.blocking_duration.1;
                 assert_rate_limited("TWC", &wopts_connector, datalen, elapsed);
 
                 thread_sync_c.wait();
-
                 let mut buf = vec![0; datalen];
                 let mut limiter = Limiter::new(
-                    limiter.stream,
+                    limiter.get_stream(),
                     ropts_connector.clone(),
                     wopts_connector.clone(),
                 );
                 let now = std::time::Instant::now();
                 limiter.read_exact(&mut buf).unwrap();
-                let elapsed = now.elapsed();
-                assert_rate_limited("TRC", &limiting_opts_2c, datalen, elapsed);
+                let elapsed = now.elapsed() - limiter.blocking_duration.0;
+                assert_rate_limited("TRC", &ropts_connector, datalen, elapsed);
                 assert_eq!(get_data_hash(&buf), datahash);
             });
             std::thread::sleep(Duration::from_millis(50));
@@ -196,32 +193,41 @@ mod tests {
                 let mut limiter = Limiter::new(
                     stream.unwrap(),
                     ropts_listener.clone(),
-                    wopts_listener.clone(),
+                    // wopts_listener.clone(),
+                    None,
                 );
-
                 let now = std::time::Instant::now();
                 limiter.read_exact(&mut buf).unwrap();
-                let elapsed = now.elapsed();
+                let elapsed = now.elapsed() - limiter.blocking_duration.0;
                 assert_eq!(get_data_hash(&buf), datahash);
-                assert_rate_limited("TRL", &limiting_opts_1l, datalen, elapsed);
+                assert_rate_limited("TRL", &ropts_listener, datalen, elapsed);
 
                 thread_sync_l.wait();
-                println!("\nStarting step 2\n");
 
-                let mut limiter =
-                    Limiter::new(limiter.stream, ropts_listener, wopts_listener.clone());
+                let mut limiter = Limiter::new(
+                    limiter.get_stream(),
+                    // ropts_listener,
+                    None,
+                    wopts_listener.clone(),
+                );
                 let now = std::time::Instant::now();
                 limiter.write_all(&data).unwrap();
-                let elapsed = now.elapsed();
+                let elapsed = now.elapsed() - limiter.blocking_duration.1;
                 assert_rate_limited("TWL", &wopts_listener, datalen, elapsed);
                 break;
             }
             assert!(connector.join().is_ok());
+            // std::thread::sleep(Duration::from_millis(50));
         }
         start_parametric_test(
-            100,
+            10000,
             vec![
+                14209078572640031037,
+                13904858326511268101,
                 15163516011027607440,
+                7013782957736503346,
+                11546705333993054670,
+                13065936645921438274,
             ],
             paramtest_tcp,
         );

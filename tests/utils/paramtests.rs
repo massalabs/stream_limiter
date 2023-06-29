@@ -16,8 +16,8 @@ where
         function(SmallRng::seed_from_u64(*seed));
         std::thread::sleep(Duration::from_millis(50));
     }
-    let mut seeder = SmallRng::from_entropy();
 
+    let mut seeder = SmallRng::from_entropy();
     let nspace = nbiter.to_string().len();
     for n in 0..nbiter {
         let new_seed: u64 = seeder.gen();
