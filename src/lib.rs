@@ -16,7 +16,7 @@
 //! ```
 use std::debug_assert;
 use std::io::{self, Read, Write};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(test)]
 mod tests;
@@ -80,22 +80,6 @@ impl LimiterOptions {
         self.min_operation_size = val;
         self.sleep_threshold = self.sleep_threshold.max(val);
     }
-
-    pub fn intersect(&self, other: &LimiterOptions) -> LimiterOptions {
-        let rate_a = self.window_length.min(self.bucket_size) as f64;
-        let tw_a = self.window_time.as_nanos() as f64;
-        let speed_a = (rate_a / tw_a) * 1_000_000.0;
-
-        let rate_b = other.window_length.min(other.bucket_size) as f64;
-        let tw_b = other.window_time.as_nanos() as f64;
-        let speed_b = (rate_b / tw_b) * 1_000_000.0;
-
-        if speed_a < speed_b {
-            self.clone()
-        } else {
-            other.clone()
-        }
-    }
 }
 
 /// A `Limiter` is a wrapper around a stream that implement `Read` and `Write` that limits the rate at which it can be read or written.
@@ -125,7 +109,6 @@ where
     ///
     /// We initialize the limiter as if one period has already passed so that the first read/write is instant.
     pub fn new(
-        // ident: &'static str,
         stream: S,
         read_opt: Option<LimiterOptions>,
         write_opt: Option<LimiterOptions>,
@@ -143,9 +126,9 @@ where
             } else {
                 None
             },
-            additionnal_tokens: (0, 0),
             read_opt,
             write_opt,
+            additionnal_tokens: (0, 0),
 
             #[cfg(test)]
             blocking_duration: (Duration::ZERO, Duration::ZERO),
@@ -215,7 +198,7 @@ where
 
     #[cfg(test)]
     pub fn read_instant(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let read_start_instant = Instant::now();
+        let read_start_instant = std::time::Instant::now();
         let nb = self.stream.read(buf)?;
         self.blocking_duration.0 += read_start_instant.elapsed();
         Ok(nb)
@@ -228,7 +211,7 @@ where
 
     #[cfg(test)]
     pub fn write_instant(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let write_start_instant = Instant::now();
+        let write_start_instant = std::time::Instant::now();
         let nb = self.stream.write(buf)?;
         self.blocking_duration.1 += write_start_instant.elapsed();
         Ok(nb)
@@ -246,7 +229,6 @@ where
 {
     /// Read a stream at a given rate. If the rate is 1 byte/s, it will take 1 second to read 1 byte. (except the first time which is instant)
     /// If you didn't read for 10 secondes in this stream and you try to read 10 bytes, it will read instantly.
-    #[allow(unused_variables)]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut read: u64 = 0;
         let mut buf_left = u64::try_from(buf.len()).expect("R buflen to u64");
@@ -284,7 +266,8 @@ where
             let read_start = usize::try_from(read).expect("R read_start to usize");
             let read_end = usize::try_from(read.saturating_add(nb_bytes_readable.min(buf_left)))
                 .expect("R read_end to usize");
-            let read_start_instant = Instant::now();
+            #[cfg(test)]
+            let read_start_instant = std::time::Instant::now();
             let read_now = u64::try_from(self.stream.read(&mut buf[read_start..read_end])?)
                 .expect("R read_now to u64");
             #[cfg(test)]
@@ -312,14 +295,12 @@ where
 {
     /// Write a stream at a given rate. If the rate is 1 byte/s, it will take 1 second to write 1 byte. (except the first time which is instant)
     /// If you didn't write for 10 secondes in this stream and you try to write 10 bytes, it will write instantly.
-    #[allow(unused_variables)]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut write: u64 = 0;
         let mut buf_left = u64::try_from(buf.len()).expect("W buflen to u64");
         let Some(opts) = self.write_opt.as_ref() else {
             return self.write_instant(buf);
         };
-        let min_operation_size = opts.min_operation_size;
 
         while buf_left > 0 {
             let nb_bytes_writable = self.tokens_available().1.unwrap().min(buf_left);
@@ -352,7 +333,9 @@ where
             let write_start = usize::try_from(write).expect("W write_start to usize");
             let write_end = usize::try_from(write.saturating_add(nb_bytes_writable.min(buf_left)))
                 .expect("W write_end to usize");
-            let write_start_instant = Instant::now();
+
+            #[cfg(test)]
+            let write_start_instant = std::time::Instant::now();
             let write_now = u64::try_from(self.stream.write(&buf[write_start..write_end])?)
                 .expect("W write_now_ to u64");
             #[cfg(test)]
