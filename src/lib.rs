@@ -218,12 +218,12 @@ where
         let read_start_instant = Instant::now();
         let nb = self.stream.read(buf)?;
         self.blocking_duration.0 += read_start_instant.elapsed();
-        return Ok(nb);
+        Ok(nb)
     }
 
     #[cfg(not(test))]
     pub fn read_instant(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        return self.stream.read(buf);
+        self.stream.read(buf)
     }
 
     #[cfg(test)]
@@ -231,12 +231,12 @@ where
         let write_start_instant = Instant::now();
         let nb = self.stream.write(buf)?;
         self.blocking_duration.1 += write_start_instant.elapsed();
-        return Ok(nb);
+        Ok(nb)
     }
 
     #[cfg(not(test))]
     pub fn write_instant(&mut self, buf: &[u8]) -> io::Result<usize> {
-        return self.stream.write(buf);
+        self.stream.write(buf)
     }
 }
 
@@ -317,7 +317,7 @@ where
         let mut write: u64 = 0;
         let mut buf_left = u64::try_from(buf.len()).expect("W buflen to u64");
         let Some(opts) = self.write_opt.as_ref() else {
-            return self.write_instant(&buf);
+            return self.write_instant(buf);
         };
         let min_operation_size = opts.min_operation_size;
 
