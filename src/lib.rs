@@ -12,7 +12,7 @@
 //! let mut buf = [0u8; 10];
 //! let now = std::time::Instant::now();
 //! limiter.read(&mut buf).unwrap();
-//! //assert_eq!(now.elapsed().as_secs(), 9);
+//! assert_eq!(now.elapsed().as_secs(), 10);
 //! ```
 use std::debug_assert;
 use std::io::{self, Read, Write};
