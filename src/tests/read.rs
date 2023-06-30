@@ -159,4 +159,19 @@ fn test_bucket_full() {
     assert_eq!(now.elapsed().as_secs(), 1, "{:?}", now.elapsed());
 }
 
+#[test]
+fn test_max_limit() {
+    let file = open_file("big.txt");
+    let mut limiter = Limiter::new(
+        file,
+        Some(LimiterOptions::new(u64::MAX, Duration::ZERO, u64::MAX)),
+        None,
+    );
+    assert!(limiter.limits().0);
+
+    let mut buf = [0u8; 11 * 1024];
+    limiter.read(&mut buf).unwrap();
+    assert_checksum(&buf, &FILE_BIG);
+}
+
 // TODO    Add test changing the bucket size between 2 reads

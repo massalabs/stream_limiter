@@ -10,7 +10,7 @@ where
     F: Fn(SmallRng),
 {
     #[cfg(feature = "heavy_testing")]
-    let nbiter = nbiter * 100;
+    let nbiter = nbiter * 10000;
 
     for seed in regressions.iter() {
         println!("\nTest regression seed {}", seed);

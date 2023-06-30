@@ -14,9 +14,9 @@
 //! limiter.read(&mut buf).unwrap();
 //! //assert_eq!(now.elapsed().as_secs(), 9);
 //! ```
+use std::debug_assert;
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
-use std::debug_assert;
 
 #[cfg(test)]
 mod tests;
@@ -27,15 +27,43 @@ pub struct LimiterOptions {
     pub window_time: Duration,
     pub bucket_size: u64,
     pub min_operation_size: u64,
+
+    // Store constants based on options to avoid re-computation at runtime
+    pub tsleep: Duration,
+    pub wtime_ns: u64,
+    pub stream_cap_limit: u64,
+    pub sleep_threshold: u64,
 }
 
 impl LimiterOptions {
-    pub fn new(window_length: u64, window_time: Duration, bucket_size: u64) -> LimiterOptions {
+    pub fn new(
+        mut window_length: u64,
+        mut window_time: Duration,
+        bucket_size: u64,
+    ) -> LimiterOptions {
+        let mut wlen = window_length;
+        let mut wtime = window_time;
+        while wlen > u32::MAX as u64 {
+            wlen /= 2;
+            wtime /= 2;
+        }
+        let tsleep = wtime / TryInto::<u32>::try_into(wlen).unwrap();
+
+        while window_time.as_nanos() > u64::MAX as u128 {
+            window_time /= 2;
+            window_length /= 2;
+        }
+
+        let stream_cap_limit = std::cmp::min(window_length, bucket_size);
         LimiterOptions {
+            stream_cap_limit,
+            wtime_ns: window_time.as_nanos().try_into().unwrap(),
+            sleep_threshold: stream_cap_limit.min(bucket_size),
             window_length,
             window_time,
             bucket_size,
             min_operation_size: 1,
+            tsleep,
         }
     }
 }
@@ -50,6 +78,7 @@ impl LimiterOptions {
             val
         );
         self.min_operation_size = val;
+        self.sleep_threshold = self.sleep_threshold.max(val);
     }
 
     pub fn intersect(&self, other: &LimiterOptions) -> LimiterOptions {
@@ -127,37 +156,11 @@ where
         self.stream
     }
 
-    fn stream_cap_limit(&self) -> (Option<u64>, Option<u64>) {
-        let read_cap = if let Some(LimiterOptions {
-            window_length,
-            bucket_size,
-            ..
-        }) = self.read_opt
-        {
-            Some(std::cmp::min(window_length, bucket_size))
-        } else {
-            None
-        };
-
-        let write_cap = if let Some(LimiterOptions {
-            window_length,
-            bucket_size,
-            ..
-        }) = self.write_opt
-        {
-            Some(std::cmp::min(window_length, bucket_size))
-        } else {
-            None
-        };
-
-        (read_cap, write_cap)
-    }
-
     fn tokens_available(&self) -> (Option<u64>, Option<u64>) {
         let read_tokens = if let Some(LimiterOptions {
             window_length,
-            window_time,
             bucket_size,
+            wtime_ns,
             ..
         }) = self.read_opt
         {
@@ -166,19 +169,21 @@ where
                 // Will cap the last_read_check at a duration of about 584 years
                 Err(_) => u64::MAX,
             };
-            let window_time =
-                u64::try_from(window_time.as_nanos()).expect("Window time nanos > u64::MAX");
-            Some(
-                std::cmp::min(lrc.saturating_mul(window_length) / window_time, bucket_size)
-                    .saturating_add(self.additionnal_tokens.0),
-            )
+            if wtime_ns == 0 {
+                Some(u64::MAX)
+            } else {
+                Some(
+                    std::cmp::min(lrc.saturating_mul(window_length) / wtime_ns, bucket_size)
+                        .saturating_add(self.additionnal_tokens.0),
+                )
+            }
         } else {
             None
         };
         let write_tokens = if let Some(LimiterOptions {
             window_length,
-            window_time,
             bucket_size,
+            wtime_ns,
             ..
         }) = self.write_opt
         {
@@ -187,12 +192,14 @@ where
                 // Will cap the last_read_check at a duration of about 584 years
                 Err(_) => u64::MAX,
             };
-            let window_time =
-                u64::try_from(window_time.as_nanos()).expect("Window time nanos > u64::MAX");
-            Some(
-                std::cmp::min(lwc.saturating_mul(window_length) / window_time, bucket_size)
-                    .saturating_add(self.additionnal_tokens.1),
-            )
+            if wtime_ns == 0 {
+                Some(u64::MAX)
+            } else {
+                Some(
+                    std::cmp::min(lwc.saturating_mul(window_length) / wtime_ns, bucket_size)
+                        .saturating_add(self.additionnal_tokens.1),
+                )
+            }
         } else {
             None
         };
@@ -206,8 +213,30 @@ where
         )
     }
 
-    pub fn compute_tsleep_per_byte(&self, opt: &LimiterOptions) -> Duration {
-        opt.window_time / TryInto::<u32>::try_into(opt.window_length).unwrap()
+    #[cfg(test)]
+    pub fn read_instant(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let read_start_instant = Instant::now();
+        let nb = self.stream.read(buf)?;
+        self.blocking_duration.0 += read_start_instant.elapsed();
+        return Ok(nb);
+    }
+
+    #[cfg(not(test))]
+    pub fn read_instant(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        return self.stream.read(buf);
+    }
+
+    #[cfg(test)]
+    pub fn write_instant(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let write_start_instant = Instant::now();
+        let nb = self.stream.write(buf)?;
+        self.blocking_duration.1 += write_start_instant.elapsed();
+        return Ok(nb);
+    }
+
+    #[cfg(not(test))]
+    pub fn write_instant(&mut self, buf: &[u8]) -> io::Result<usize> {
+        return self.stream.write(buf);
     }
 }
 
@@ -221,43 +250,30 @@ where
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut read: u64 = 0;
         let mut buf_left = u64::try_from(buf.len()).expect("R buflen to u64");
-        let readlimit = if let (Some(limit), _) = self.stream_cap_limit() {
-            limit
-        } else {
-            #[cfg(test)]
-            {
-                let read_start_instant = Instant::now();
-                let nb = self.stream.read(buf)?;
-                self.blocking_duration.0 += read_start_instant.elapsed();
-                return Ok(nb);
-            }
-            #[cfg(not(test))]
-            {
-                return self.stream.read(buf);
-            }
+        let Some(opts) = self.read_opt.as_ref() else {
+            return self.read_instant(buf);
         };
-        let tsleep = self.compute_tsleep_per_byte(self.read_opt.as_ref().unwrap());
-        let opts = self.read_opt.as_ref().unwrap();
-        let sleep_threshold = readlimit.max(opts.min_operation_size);
         while buf_left > 0 {
             let nb_bytes_readable = self.tokens_available().0.unwrap().min(buf_left);
-            if nb_bytes_readable < sleep_threshold.min(buf_left).min(opts.bucket_size) {
-                let nb_left: u32 = sleep_threshold
+            if nb_bytes_readable < opts.sleep_threshold.min(buf_left) {
+                let nb_left: u32 = opts
+                    .sleep_threshold
                     .min(buf_left)
-                    .min(opts.bucket_size)
                     .saturating_sub(nb_bytes_readable)
                     .try_into()
                     .expect("Read nb left > u32::MAX");
-                std::thread::sleep(tsleep * nb_left);
+                std::thread::sleep(opts.tsleep * nb_left);
 
                 #[cfg(debug_assertions)]
                 {
                     if nb_bytes_readable != opts.bucket_size {
                         let new_nb_bytes_readable = self.tokens_available().0.unwrap();
                         debug_assert!(new_nb_bytes_readable > nb_bytes_readable,
-                            "\n{:?}\nTsleep: {tsleep:?} x {nb_left} = {:?}\nReadlimit: {readlimit}\n{nb_bytes_readable} == {new_nb_bytes_readable}",
+                            "\n{:?}\nTsleep: {:?} x {nb_left} = {:?}\nReadlimit: {}\n{nb_bytes_readable} == {new_nb_bytes_readable}",
                             self.read_opt.as_ref(),
-                            tsleep * nb_left,
+                            opts.tsleep,
+                            opts.tsleep * nb_left,
+                            opts.stream_cap_limit,
                         );
                     }
                 }
@@ -300,35 +316,21 @@ where
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut write: u64 = 0;
         let mut buf_left = u64::try_from(buf.len()).expect("W buflen to u64");
-        let writelimit = if let (_, Some(limit)) = self.stream_cap_limit() {
-            limit
-        } else {
-            #[cfg(test)]
-            {
-                let write_start_instant = Instant::now();
-                let nb = self.stream.write(buf)?;
-                self.blocking_duration.1 += write_start_instant.elapsed();
-                return Ok(nb);
-            }
-            #[cfg(not(test))]
-            {
-                return self.stream.write(buf);
-            }
+        let Some(opts) = self.write_opt.as_ref() else {
+            return self.write_instant(&buf);
         };
-        let tsleep = self.compute_tsleep_per_byte(self.write_opt.as_ref().unwrap());
-        let opts = self.write_opt.as_ref().unwrap();
         let min_operation_size = opts.min_operation_size;
 
-        let sleep_threshold = writelimit.max(min_operation_size);
         while buf_left > 0 {
             let nb_bytes_writable = self.tokens_available().1.unwrap().min(buf_left);
-            if nb_bytes_writable < sleep_threshold.min(buf_left).min(opts.bucket_size) {
-                let nb_left: u32 = sleep_threshold
+            if nb_bytes_writable < opts.sleep_threshold.min(buf_left) {
+                let nb_left: u32 = opts
+                    .sleep_threshold
                     .min(buf_left)
                     .saturating_sub(nb_bytes_writable)
                     .try_into()
                     .expect("Write nb left > u32::MAX");
-                std::thread::sleep(tsleep * nb_left);
+                std::thread::sleep(opts.tsleep * nb_left);
 
                 #[cfg(debug_assertions)]
                 {
@@ -336,8 +338,10 @@ where
                         let new_nb_bytes_writable = self.tokens_available().1.unwrap();
                         debug_assert!(
                             new_nb_bytes_writable > nb_bytes_writable,
-                            "\n{:?}\nTsleep: {tsleep:?}\nWritelimit: {writelimit}\n",
+                            "\n{:?}\nTsleep: {:?}\nWritelimit: {}\n",
                             self.write_opt.as_ref(),
+                            opts.tsleep,
+                            opts.stream_cap_limit,
                         );
                     }
                 }

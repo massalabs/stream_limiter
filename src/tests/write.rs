@@ -143,3 +143,19 @@ fn write_bucket_full() {
     assert_eq!(now.elapsed().as_secs(), 1, "{:?}", now.elapsed());
     assert_checksum_samedata::<210>(&limiter.stream.into_inner(), 128);
 }
+
+#[test]
+fn test_max_limit() {
+    let outbuf = std::io::Cursor::new(vec![]);
+    let mut limiter = Limiter::new(
+        outbuf,
+        None,
+        Some(LimiterOptions::new(u64::MAX, Duration::ZERO, u64::MAX)),
+    );
+    assert!(limiter.limits().1);
+
+    let buf = [144u8; 100];
+    limiter.write(&buf).unwrap();
+
+    assert_checksum_samedata::<100>(&limiter.stream.into_inner(), 144);
+}
