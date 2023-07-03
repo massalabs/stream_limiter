@@ -29,10 +29,10 @@ pub struct LimiterOptions {
     pub min_operation_size: u64,
 
     // Store constants based on options to avoid re-computation at runtime
-    pub tsleep: Duration,
-    pub wtime_ns: u64,
-    pub stream_cap_limit: u64,
-    pub sleep_threshold: u64,
+    pub tsleep: Duration,      // Time to sleep for 1 byte of data
+    pub wtime_ns: u64,         // Window time as nanoseconds
+    pub stream_cap_limit: u64, // Limit between the window_length and bucket_size
+    pub sleep_threshold: u64,  // Value under which we have to sleep to get more tokens
 }
 
 impl LimiterOptions {
@@ -58,7 +58,7 @@ impl LimiterOptions {
         LimiterOptions {
             stream_cap_limit,
             wtime_ns: window_time.as_nanos().try_into().unwrap(),
-            sleep_threshold: stream_cap_limit.min(bucket_size),
+            sleep_threshold: stream_cap_limit,
             window_length,
             window_time,
             bucket_size,
@@ -69,6 +69,10 @@ impl LimiterOptions {
 }
 
 impl LimiterOptions {
+    /// Sets a minimal size for the IO operation to perform.
+    /// The number of tokens available in order to read / write will have to be at
+    /// least this size (expect there is not enough data left)
+    /// Useful for TcpStream operations (Tcp operation has 60Kb of data / packet)
     pub fn set_min_operation_size(&mut self, val: u64) {
         assert_ne!(val, 0);
         assert!(
@@ -237,10 +241,9 @@ where
         };
         while buf_left > 0 {
             let nb_bytes_readable = self.tokens_available().0.unwrap().min(buf_left);
-            if nb_bytes_readable < opts.sleep_threshold.min(buf_left) {
-                let nb_left: u32 = opts
-                    .sleep_threshold
-                    .min(buf_left)
+            let sleep_threshold = opts.sleep_threshold.min(buf_left);
+            if nb_bytes_readable < sleep_threshold {
+                let nb_left: u32 = sleep_threshold
                     .saturating_sub(nb_bytes_readable)
                     .try_into()
                     .expect("Read nb left > u32::MAX");
@@ -304,10 +307,9 @@ where
 
         while buf_left > 0 {
             let nb_bytes_writable = self.tokens_available().1.unwrap().min(buf_left);
-            if nb_bytes_writable < opts.sleep_threshold.min(buf_left) {
-                let nb_left: u32 = opts
-                    .sleep_threshold
-                    .min(buf_left)
+            let sleep_threshold = opts.sleep_threshold.min(buf_left);
+            if nb_bytes_writable < sleep_threshold {
+                let nb_left: u32 = sleep_threshold
                     .saturating_sub(nb_bytes_writable)
                     .try_into()
                     .expect("Write nb left > u32::MAX");
