@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+use std::{fs::File, path::PathBuf};
+
 use hex_literal::hex;
 use sha2::Digest;
 
@@ -35,4 +38,11 @@ pub fn assert_checksum_samedata<const N: usize>(buf: &[u8], data: u8) {
     let mut hasher = sha2::Sha256::new();
     hasher.update(buf);
     assert_eq!(hasher.finalize()[..], samedata_hash[..]);
+}
+
+pub fn open_file(fname: &'static str) -> File {
+    let path_base: PathBuf = PathBuf::from("test_resources/");
+    let fpath = path_base.join(fname);
+    assert!(fpath.exists());
+    File::open(fpath).unwrap()
 }
