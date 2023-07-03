@@ -1,3 +1,5 @@
+// TODO     Add random timeout on the tests as well
+
 use sha2::Digest;
 use std::{
     io::{Read, Write},
