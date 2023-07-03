@@ -336,11 +336,6 @@ where
                     .saturating_sub(nb_bytes_writable)
                     .try_into()
                     .expect("Write nb left > u32::MAX");
-                println!(
-                    "{nb_left} bytes needed, {:?} per byte, sleep {:?}",
-                    opts.tsleep,
-                    opts.tsleep * nb_left
-                );
                 let tsleep_total = if let Some(t) = opts.timeout {
                     (opts.tsleep * nb_left).min(t.saturating_sub(write_start.elapsed()))
                 } else {
@@ -368,7 +363,6 @@ where
             let write_start = usize::try_from(write).expect("W write_start to usize");
             let write_end = usize::try_from(write.saturating_add(nb_bytes_writable.min(buf_left)))
                 .expect("W write_end to usize");
-            println!("Writing {} bytes", nb_bytes_writable.min(buf_left));
 
             #[cfg(test)]
             let write_start_instant = std::time::Instant::now();
