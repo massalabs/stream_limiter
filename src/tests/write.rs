@@ -159,3 +159,18 @@ fn test_max_limit() {
 
     assert_checksum_samedata::<100>(&limiter.stream.into_inner(), 144);
 }
+
+#[test]
+fn write_timeout() {
+    let outbuf = std::io::Cursor::new(vec![]);
+    let mut limopt = LimiterOptions::new(1, Duration::from_secs(1), 10);
+    limopt.set_timeout(Duration::from_secs(1));
+    let mut limiter = Limiter::new(outbuf, None, Some(limopt));
+    assert!(limiter.limits().1);
+
+    let mut buf = [128u8; 110];
+    let now = std::time::Instant::now();
+    let res = limiter.write(&mut buf);
+    assert_eq!(now.elapsed().as_millis(), 1000);
+    assert!(res.is_err());
+}

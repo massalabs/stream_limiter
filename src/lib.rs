@@ -16,7 +16,7 @@
 //! ```
 use std::debug_assert;
 use std::io::{self, Read, Write};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(test)]
 mod tests;
@@ -27,6 +27,7 @@ pub struct LimiterOptions {
     pub window_time: Duration,
     pub bucket_size: u64,
     pub min_operation_size: u64,
+    pub timeout: Option<Duration>,
 
     // Store constants based on options to avoid re-computation at runtime
     pub tsleep: Duration,      // Time to sleep for 1 byte of data
@@ -64,6 +65,7 @@ impl LimiterOptions {
             bucket_size,
             min_operation_size: 1,
             tsleep,
+            timeout: None,
         }
     }
 }
@@ -84,6 +86,10 @@ impl LimiterOptions {
         self.min_operation_size = val;
         self.sleep_threshold = self.sleep_threshold.max(val);
     }
+
+    pub fn set_timeout(&mut self, timeout: Duration) {
+        self.timeout = Some(timeout);
+    }
 }
 
 /// A `Limiter` is a wrapper around a stream that implement `Read` and `Write` that limits the rate at which it can be read or written.
@@ -93,8 +99,8 @@ where
     S: Read + Write,
 {
     pub stream: S,
-    read_opt: Option<LimiterOptions>,
-    write_opt: Option<LimiterOptions>,
+    pub read_opt: Option<LimiterOptions>,
+    pub write_opt: Option<LimiterOptions>,
     last_read_check: Option<std::time::Instant>,
     last_write_check: Option<std::time::Instant>,
     additionnal_tokens: (u64, u64),
@@ -234,12 +240,18 @@ where
     /// Read a stream at a given rate. If the rate is 1 byte/s, it will take 1 second to read 1 byte. (except the first time which is instant)
     /// If you didn't read for 10 secondes in this stream and you try to read 10 bytes, it will read instantly.
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let read_start = Instant::now();
         let mut read: u64 = 0;
         let mut buf_left = u64::try_from(buf.len()).expect("R buflen to u64");
         let Some(opts) = self.read_opt.as_ref() else {
             return self.read_instant(buf);
         };
         while buf_left > 0 {
+            if let Some(t) = opts.timeout {
+                if read_start.elapsed() > t {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "Read timeout"));
+                }
+            }
             let nb_bytes_readable = self.tokens_available().0.unwrap().min(buf_left);
             let sleep_threshold = opts.sleep_threshold.min(buf_left);
             if nb_bytes_readable < sleep_threshold {
@@ -247,7 +259,12 @@ where
                     .saturating_sub(nb_bytes_readable)
                     .try_into()
                     .expect("Read nb left > u32::MAX");
-                std::thread::sleep(opts.tsleep * nb_left);
+                let tsleep_total = if let Some(t) = opts.timeout {
+                    (opts.tsleep * nb_left).min(t.saturating_sub(read_start.elapsed()))
+                } else {
+                    opts.tsleep * nb_left
+                };
+                std::thread::sleep(tsleep_total);
 
                 #[cfg(debug_assertions)]
                 {
@@ -299,6 +316,7 @@ where
     /// Write a stream at a given rate. If the rate is 1 byte/s, it will take 1 second to write 1 byte. (except the first time which is instant)
     /// If you didn't write for 10 secondes in this stream and you try to write 10 bytes, it will write instantly.
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let write_start = Instant::now();
         let mut write: u64 = 0;
         let mut buf_left = u64::try_from(buf.len()).expect("W buflen to u64");
         let Some(opts) = self.write_opt.as_ref() else {
@@ -306,6 +324,11 @@ where
         };
 
         while buf_left > 0 {
+            if let Some(t) = opts.timeout {
+                if write_start.elapsed() > t {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "Write timeout"));
+                }
+            }
             let nb_bytes_writable = self.tokens_available().1.unwrap().min(buf_left);
             let sleep_threshold = opts.sleep_threshold.min(buf_left);
             if nb_bytes_writable < sleep_threshold {
@@ -313,7 +336,17 @@ where
                     .saturating_sub(nb_bytes_writable)
                     .try_into()
                     .expect("Write nb left > u32::MAX");
-                std::thread::sleep(opts.tsleep * nb_left);
+                println!(
+                    "{nb_left} bytes needed, {:?} per byte, sleep {:?}",
+                    opts.tsleep,
+                    opts.tsleep * nb_left
+                );
+                let tsleep_total = if let Some(t) = opts.timeout {
+                    (opts.tsleep * nb_left).min(t.saturating_sub(write_start.elapsed()))
+                } else {
+                    opts.tsleep * nb_left
+                };
+                std::thread::sleep(tsleep_total);
 
                 #[cfg(debug_assertions)]
                 {
@@ -335,6 +368,7 @@ where
             let write_start = usize::try_from(write).expect("W write_start to usize");
             let write_end = usize::try_from(write.saturating_add(nb_bytes_writable.min(buf_left)))
                 .expect("W write_end to usize");
+            println!("Writing {} bytes", nb_bytes_writable.min(buf_left));
 
             #[cfg(test)]
             let write_start_instant = std::time::Instant::now();

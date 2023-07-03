@@ -174,4 +174,19 @@ fn test_max_limit() {
     assert_checksum(&buf, &FILE_BIG);
 }
 
+#[test]
+fn read_timeout() {
+    let file = open_file("big.txt");
+    let mut limopt = LimiterOptions::new(1, Duration::from_secs(1), 10);
+    limopt.set_timeout(Duration::from_secs(1));
+    let mut limiter = Limiter::new(file, Some(limopt), None);
+    assert!(limiter.limits().0);
+
+    let mut buf = [0u8; 11 * 1024];
+    let now = std::time::Instant::now();
+    let res = limiter.read(&mut buf);
+    assert_eq!(now.elapsed().as_millis(), 1000);
+    assert!(res.is_err());
+}
+
 // TODO    Add test changing the bucket size between 2 reads
