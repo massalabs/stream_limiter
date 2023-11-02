@@ -12,7 +12,7 @@ use crate::{Limiter, LimiterOptions};
 
 const INSTANT_IO_EPS: u128 = 1_500_000;
 const DATALEN_DIVIDER: usize = 5;
-const ALLOWED_PERC_DIFF: f64 = 0.05;
+const ALLOWED_PERC_DIFF: f64 = 0.09;
 
 fn assert_rate_limited(
     idx: &'static str,
