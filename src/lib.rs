@@ -23,19 +23,28 @@ mod tests;
 
 #[derive(Clone, Debug)]
 pub struct LimiterOptions {
-    pub window_length: u64, // How many bytes to be read on the window_time period
-    pub window_time: Duration, // Time spent to read window_length bytes
-    pub bucket_size: u64,   // Maximum number of bytes to be prepared for future read
-    pub timeout: Option<Duration>, // Raise an error if this timeout is passed
+    /// How many bytes to be read on the window_time period
+    pub window_length: u64,
+    /// Time spent to read window_length bytes
+    pub window_time: Duration,
+    /// Maximum number of bytes to be prepared for future read
+    pub bucket_size: u64,
+    /// Raise an error if this timeout is passed
+    pub timeout: Option<Duration>,
 
     // Store constants based on options to avoid re-computation at runtime
-    pub tsleep: Duration,      // Time to sleep for 1 byte of data
-    pub wtime_ns: u64,         // Window time as nanoseconds
-    pub stream_cap_limit: u64, // Limit between the window_length and bucket_size
-    pub sleep_threshold: u64,  // Value under which we have to sleep to get more tokens
+    /// Time to sleep for 1 byte of data
+    pub tsleep: Duration,
+    /// Window time as nanoseconds
+    pub wtime_ns: u64,
+    /// Limit between the window_length and bucket_size
+    pub stream_cap_limit: u64,
+    /// Value under which we have to sleep to get more tokens
+    pub sleep_threshold: u64,
 }
 
 impl LimiterOptions {
+    /// Generate a new LimiterOptions configuration struct
     pub fn new(
         mut window_length: u64,
         mut window_time: Duration,
@@ -90,8 +99,8 @@ impl LimiterOptions {
         self.sleep_threshold = self.sleep_threshold.max(val);
     }
 
-    // Sets a timeout so we can interrupt a limited stream read / write once it has
-    // lasted too much time
+    /// Sets a timeout so we can interrupt a limited stream read / write once it has
+    /// lasted too much time
     pub fn set_timeout(&mut self, timeout: Duration) {
         self.timeout = Some(timeout);
     }
@@ -149,12 +158,12 @@ where
         }
     }
 
-    // Get the raw stream, deconstruct the Limiter struct.
+    /// Get the raw stream, deconstruct the Limiter struct.
     pub fn get_stream(self) -> S {
         self.stream
     }
 
-    // Get the number of bytes available for read / write.
+    /// Get the number of bytes available for read / write.
     fn tokens_available(&self) -> (Option<u64>, Option<u64>) {
         let read_tokens = if let Some(LimiterOptions {
             window_length,
@@ -210,7 +219,7 @@ where
         (read_tokens, write_tokens)
     }
 
-    // Get if this Limiter limits the read or write stream (or none)
+    /// Get if this Limiter limits the read or write stream (or none)
     pub fn limits(&self) -> (bool, bool) {
         (
             self.read_opt.is_some() && self.last_read_check.is_some(),
@@ -218,7 +227,7 @@ where
         )
     }
 
-    // Read instantly from the stream, add duration it took to the attribute for debugging
+    /// Read instantly from the stream, add duration it took to the attribute for debugging
     #[cfg(test)]
     pub fn read_instant(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let read_start_instant = std::time::Instant::now();
@@ -227,13 +236,13 @@ where
         Ok(nb)
     }
 
-    // Read instantly from the stream
+    /// Read instantly from the stream
     #[cfg(not(test))]
     pub fn read_instant(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.stream.read(buf)
     }
 
-    // Write instantly from the stream, add duration it took to the attribute for debugging
+    /// Write instantly from the stream, add duration it took to the attribute for debugging
     #[cfg(test)]
     pub fn write_instant(&mut self, buf: &[u8]) -> io::Result<usize> {
         let write_start_instant = std::time::Instant::now();
@@ -242,7 +251,7 @@ where
         Ok(nb)
     }
 
-    // Write instantly from the stream
+    /// Write instantly from the stream
     #[cfg(not(test))]
     pub fn write_instant(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.stream.write(buf)
@@ -253,6 +262,8 @@ impl<S> Read for Limiter<S>
 where
     S: Read + Write,
 {
+    /// Read a stream, limit the I/O operation speed as configured inside the options.
+    /// Supposed to have exactly the same behavior as a "normal" system IO read.
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         // Initialize the algorithm
         let read_start = Instant::now();
@@ -355,8 +366,8 @@ impl<S> Write for Limiter<S>
 where
     S: Read + Write,
 {
-    /// Write a stream at a given rate. If the rate is 1 byte/s, it will take 1 second to write 1 byte. (except the first time which is instant)
-    /// If you didn't write for 10 secondes in this stream and you try to write 10 bytes, it will write instantly.
+    /// Write a stream, limit the I/O operation speed as configured inside the options.
+    /// Supposed to have exactly the same behavior as a "normal" system IO write.
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         // Initialize the algorithm
         let write_start = Instant::now();
@@ -454,6 +465,7 @@ where
         Ok(usize::try_from(write).expect("W return to usize"))
     }
 
+    /// Flush the underlying stream
     fn flush(&mut self) -> io::Result<()> {
         self.stream.flush()
     }
